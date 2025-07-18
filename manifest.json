@@ -1,0 +1,11 @@
+{
+	"id": "visual-knowledge-workbench",
+	"name": "Visual Knowledge Workbench",
+	"version": "1.0.0",
+	"minAppVersion": "0.15.0",
+	"description": "A card-based visual knowledge management workbench that enhances Obsidian Canvas with intelligent filtering, drag-and-drop functionality, and context-aware organization for efficient Zettelkasten note-taking.",
+	"author": "Visual Knowledge Team",
+	"authorUrl": "https://github.com/visual-knowledge-team",
+	"fundingUrl": "",
+	"isDesktopOnly": false
+}

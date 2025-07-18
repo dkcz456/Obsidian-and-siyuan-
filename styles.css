@@ -1,0 +1,292 @@
+/*
+Visual Knowledge Workbench Plugin Styles
+========================================
+
+This CSS file contains styles for the Visual Knowledge Workbench plugin,
+including card library, canvas enhancements, and responsive design.
+*/
+
+/* =======================================================
+   CSS 变量定义 - 主题适配
+   ======================================================= */
+:root {
+  --vkw-primary-color: var(--interactive-accent);
+  --vkw-secondary-color: var(--background-secondary);
+  --vkw-border-color: var(--background-modifier-border);
+  --vkw-hover-color: var(--background-modifier-hover);
+  --vkw-active-color: var(--background-modifier-active);
+  --vkw-text-color: var(--text-normal);
+  --vkw-text-muted: var(--text-muted);
+  --vkw-border-radius: 6px;
+  --vkw-spacing-xs: 4px;
+  --vkw-spacing-sm: 8px;
+  --vkw-spacing-md: 12px;
+  --vkw-spacing-lg: 16px;
+  --vkw-transition: all 0.2s ease;
+}
+
+/* =======================================================
+   全局卡片库样式
+   ======================================================= */
+
+/* 卡片库容器 */
+.card-library-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: var(--vkw-spacing-sm);
+}
+
+/* 卡片库标题 */
+.card-library-view h4 {
+  margin: 0 0 var(--vkw-spacing-md) 0;
+  color: var(--vkw-text-color);
+  font-weight: 600;
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* 筛选器容器 */
+.card-library-filters {
+  display: flex;
+  flex-direction: column;
+  gap: var(--vkw-spacing-sm);
+  margin-bottom: var(--vkw-spacing-md);
+  padding: var(--vkw-spacing-sm);
+  background: var(--vkw-secondary-color);
+  border-radius: var(--vkw-border-radius);
+  border: 1px solid var(--vkw-border-color);
+}
+
+/* 画布选择器 */
+.canvas-selector {
+  width: 100%;
+  padding: var(--vkw-spacing-xs) var(--vkw-spacing-sm);
+  background: var(--background-primary);
+  border: 1px solid var(--vkw-border-color);
+  border-radius: var(--vkw-border-radius);
+  color: var(--vkw-text-color);
+  font-size: 12px;
+  transition: var(--vkw-transition);
+}
+
+.canvas-selector:hover {
+  border-color: var(--vkw-primary-color);
+}
+
+.canvas-selector:focus {
+  outline: none;
+  border-color: var(--vkw-primary-color);
+  box-shadow: 0 0 0 2px var(--vkw-primary-color)20;
+}
+
+/* 搜索框 */
+.card-library-search {
+  width: 100%;
+  padding: var(--vkw-spacing-xs) var(--vkw-spacing-sm);
+  background: var(--background-primary);
+  border: 1px solid var(--vkw-border-color);
+  border-radius: var(--vkw-border-radius);
+  color: var(--vkw-text-color);
+  font-size: 12px;
+  transition: var(--vkw-transition);
+}
+
+.card-library-search:hover {
+  border-color: var(--vkw-primary-color);
+}
+
+.card-library-search:focus {
+  outline: none;
+  border-color: var(--vkw-primary-color);
+  box-shadow: 0 0 0 2px var(--vkw-primary-color)20;
+}
+
+.card-library-search::placeholder {
+  color: var(--vkw-text-muted);
+}
+
+/* 标签筛选器 */
+.card-library-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--vkw-spacing-xs);
+}
+
+.tag-filter-button {
+  padding: 2px var(--vkw-spacing-xs);
+  background: var(--background-primary);
+  border: 1px solid var(--vkw-border-color);
+  border-radius: 3px;
+  color: var(--vkw-text-muted);
+  font-size: 10px;
+  cursor: pointer;
+  transition: var(--vkw-transition);
+}
+
+.tag-filter-button:hover {
+  background: var(--vkw-hover-color);
+  border-color: var(--vkw-primary-color);
+}
+
+.tag-filter-button.active {
+  background: var(--vkw-primary-color);
+  border-color: var(--vkw-primary-color);
+  color: var(--text-on-accent);
+}
+
+/* 卡片列表容器 */
+.card-library-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--vkw-spacing-xs);
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--vkw-spacing-xs) 0;
+}
+
+/* 卡片项 */
+.card-library-item {
+  padding: var(--vkw-spacing-sm) var(--vkw-spacing-md);
+  background: var(--vkw-secondary-color);
+  border-radius: var(--vkw-border-radius);
+  border: 1px solid var(--vkw-border-color);
+  cursor: grab;
+  transition: var(--vkw-transition);
+  font-size: 13px;
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--vkw-text-color);
+  position: relative;
+}
+
+.card-library-item:hover {
+  background: var(--vkw-hover-color);
+  border-color: var(--vkw-primary-color);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.card-library-item:active {
+  cursor: grabbing;
+  background: var(--vkw-active-color);
+  transform: scale(0.98);
+}
+
+/* 原生卡片项特殊样式 */
+.card-library-item.native-card-item {
+  border-left: 3px solid var(--vkw-primary-color);
+  padding-left: calc(var(--vkw-spacing-md) - 3px);
+}
+
+.card-library-item.native-card-item::before {
+  content: "📝";
+  position: absolute;
+  right: var(--vkw-spacing-sm);
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 10px;
+  opacity: 0.6;
+}
+
+/* 文件卡片项图标 */
+.card-library-item:not(.native-card-item)::before {
+  content: "📄";
+  position: absolute;
+  right: var(--vkw-spacing-sm);
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 10px;
+  opacity: 0.6;
+}
+
+/* 拖拽状态 */
+.card-library-item.dragging {
+  opacity: 0.5;
+  transform: rotate(2deg);
+}
+
+/* 空状态 */
+.card-library-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  color: var(--vkw-text-muted);
+  font-size: 12px;
+  text-align: center;
+  padding: var(--vkw-spacing-lg);
+}
+
+.card-library-empty-icon {
+  font-size: 24px;
+  margin-bottom: var(--vkw-spacing-sm);
+  opacity: 0.5;
+}
+
+/* =======================================================
+   响应式设计
+   ======================================================= */
+
+/* 小屏幕适配 */
+@media (max-width: 768px) {
+  .card-library-filters {
+    padding: var(--vkw-spacing-xs);
+  }
+
+  .card-library-item {
+    padding: var(--vkw-spacing-xs) var(--vkw-spacing-sm);
+    font-size: 12px;
+  }
+
+  .card-library-tags {
+    gap: 2px;
+  }
+
+  .tag-filter-button {
+    font-size: 9px;
+    padding: 1px 3px;
+  }
+}
+
+/* 高对比度模式支持 */
+@media (prefers-contrast: high) {
+  .card-library-item {
+    border-width: 2px;
+  }
+
+  .card-library-item:hover {
+    border-width: 2px;
+  }
+}
+
+/* 减少动画模式支持 */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
+}
+
+/* =======================================================
+   Canvas 增强样式 (预留)
+   ======================================================= */
+
+/* Canvas 拖放区域高亮 */
+.canvas-drop-zone-active {
+  background: var(--vkw-primary-color)10;
+  border: 2px dashed var(--vkw-primary-color);
+}
+
+/* Canvas 节点增强样式 */
+.canvas-node-enhanced {
+  transition: var(--vkw-transition);
+}
+
+.canvas-node-enhanced:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
