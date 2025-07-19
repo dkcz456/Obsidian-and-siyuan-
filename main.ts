@@ -81,6 +81,52 @@ interface CanvasEdge {
 	toSide: string;
 }
 
+// =======================================================
+// ==              布局算法相关接口                     ==
+// =======================================================
+
+interface LayoutConfig {
+	horizontalSpacing: number;      // 水平间距 (父子节点间)
+	verticalSpacing: number;        // 垂直间距 (兄弟节点间)
+	symmetryMode: 'vertical' | 'horizontal' | 'radial';
+	centerAlignment: boolean;       // 是否以父节点为中心对齐
+	maxVerticalSpread: number;      // 最大垂直展开范围
+	collisionDetection: boolean;    // 是否启用碰撞检测
+	avoidanceMargin: number;        // 避让边距
+	defaultNodeWidth: number;       // 默认节点宽度
+	defaultNodeHeight: number;      // 默认节点高度
+}
+
+interface ChildNodePosition {
+	x: number;
+	y: number;
+	index: number;          // 在子节点列表中的索引
+	level: number;          // 层级深度
+	isSymmetric: boolean;   // 是否为对称布局
+	avoidanceApplied: boolean; // 是否应用了避让
+}
+
+interface LayoutResult {
+	positions: ChildNodePosition[];
+	totalHeight: number;    // 总布局高度
+	totalWidth: number;     // 总布局宽度
+	centerY: number;        // 布局中心Y坐标
+	warnings: string[];     // 布局警告信息
+}
+
+interface NodeRelationship {
+	nodeId: string;
+	parentId: string | null;
+	childIds: string[];
+	siblingIds: string[];
+	level: number;  // 在层级树中的深度
+}
+
+interface NodeTree {
+	roots: string[];  // 根节点ID列表
+	relationships: Map<string, NodeRelationship>;
+}
+
 // 筛选状态接口
 interface FilterState {
 	mode: 'global' | 'canvas';
@@ -115,9 +161,12 @@ const DEFAULT_SETTINGS: PluginSettings = {
 // =======================================================
 export class CanvasIntegration {
 	private app: App;
+	private relationshipAnalyzer: NodeRelationshipAnalyzer | null = null;
+	private layoutCalculator: SymmetricLayoutCalculator;
 
 	constructor(app: App) {
 		this.app = app;
+		this.layoutCalculator = new SymmetricLayoutCalculator();
 		this.setupGlobalDropHandling();
 	}
 
@@ -401,11 +450,748 @@ export class CanvasIntegration {
 			text: textContent
 		};
 	}
+
+	// =======================================================
+	// ==              思维导图式交互方法                   ==
+	// =======================================================
+
+	// 在指定位置创建子节点 (带连接线) - 使用动态重新布局
+	async createChildNodeAt(parentNode: any, position: {x: number, y: number}, canvasView: any) {
+		try {
+			// 初始化关系分析器
+			await this.initializeRelationshipAnalyzer(canvasView);
+
+			// 获取现有子节点
+			const existingChildren = await this.getExistingChildNodes(parentNode.id, canvasView);
+
+			console.log(`创建子节点: 父节点 ${parentNode.id} 现有 ${existingChildren.length} 个子节点`);
+
+			// 计算包含新节点的所有位置（动态重新布局）
+			const allPositions = this.layoutCalculator.calculateSymmetricPositions(
+				parentNode,
+				existingChildren.length + 1,
+				0
+			);
+
+			// 1. 重新布局现有子节点
+			if (existingChildren.length > 0) {
+				const existingUpdates = existingChildren.map((child, index) => ({
+					nodeId: child.id,
+					x: allPositions[index].x,
+					y: allPositions[index].y
+				}));
+
+				console.log(`重新布局 ${existingChildren.length} 个现有子节点`);
+				const updateResult = await this.batchUpdateNodePositions(existingUpdates, canvasView);
+
+				if (!updateResult.success) {
+					console.warn('部分现有节点位置更新失败:', updateResult.failedNodes);
+				}
+			}
+
+			// 2. 创建新节点
+			const newNodePosition = allPositions[existingChildren.length];
+			const newNodeId = this.generateNodeId();
+
+			// 创建新的文本节点（使用计算出的位置）
+			const newNode = this.createTextNode(
+				newNodeId,
+				'新建子节点',
+				newNodePosition.x,
+				newNodePosition.y
+			);
+
+			// 添加节点到Canvas
+			await this.addNodeToCanvas(newNode, canvasView);
+
+			// 创建连接线 (父节点 -> 子节点)
+			const newEdge = {
+				id: `edge-${parentNode.id}-${newNodeId}`,
+				fromNode: parentNode.id,
+				toNode: newNodeId,
+				fromSide: 'right',
+				toSide: 'left'
+			};
+
+			await this.addEdgeToCanvas(newEdge, canvasView);
+
+			console.log(`动态布局完成: 重新排列 ${existingChildren.length} 个现有节点，创建 1 个新节点`);
+
+		} catch (error) {
+			console.error('Error creating child node with dynamic layout:', error);
+			// 回退到原始位置创建
+			await this.createChildNodeAtPosition(parentNode, position, canvasView);
+		}
+	}
+
+	// 回退方法：在指定位置创建子节点（原始逻辑）
+	private async createChildNodeAtPosition(parentNode: any, position: {x: number, y: number}, canvasView: any) {
+		// 生成新节点ID
+		const newNodeId = this.generateNodeId();
+
+		// 创建新的文本节点
+		const newNode = this.createTextNode(
+			newNodeId,
+			'新建子节点',
+			position.x,
+			position.y
+		);
+
+		// 添加节点到Canvas
+		await this.addNodeToCanvas(newNode, canvasView);
+
+		// 创建连接线 (父节点 -> 子节点)
+		const newEdge = {
+			id: `edge-${parentNode.id}-${newNodeId}`,
+			fromNode: parentNode.id,
+			toNode: newNodeId,
+			fromSide: 'right',
+			toSide: 'left'
+		};
+
+		await this.addEdgeToCanvas(newEdge, canvasView);
+	}
+
+	// 在指定位置创建同级节点 (无连接线)
+	async createSiblingNodeAt(siblingNode: any, position: {x: number, y: number}, canvasView: any) {
+		// 生成新节点ID
+		const newNodeId = this.generateNodeId();
+
+		// 创建新的文本节点
+		const newNode = this.createTextNode(
+			newNodeId,
+			'新建同级节点',
+			position.x,
+			position.y
+		);
+
+		// 添加节点到Canvas (不创建连接线)
+		await this.addNodeToCanvas(newNode, canvasView);
+	}
+
+	// 添加连接线到Canvas
+	private async addEdgeToCanvas(edge: any, canvasView: any) {
+		try {
+			// 获取当前Canvas数据
+			const canvasFile = canvasView.file;
+			if (!canvasFile) {
+				console.error('Canvas file not found');
+				return;
+			}
+
+			const content = await this.app.vault.read(canvasFile);
+			let canvasData: CanvasData;
+
+			try {
+				canvasData = JSON.parse(content);
+			} catch (parseError) {
+				console.error('Invalid Canvas JSON format:', parseError);
+				return;
+			}
+
+			// 确保edges数组存在
+			if (!canvasData.edges) {
+				canvasData.edges = [];
+			}
+
+			// 添加新连接线
+			canvasData.edges.push(edge);
+
+			// 保存更新后的Canvas数据
+			const updatedContent = JSON.stringify(canvasData, null, '\t');
+			await this.app.vault.modify(canvasFile, updatedContent);
+
+			// 刷新Canvas视图
+			if (canvasView.canvas && canvasView.canvas.requestSave) {
+				canvasView.canvas.requestSave();
+			}
+		} catch (error) {
+			console.error('Error adding edge to canvas:', error);
+		}
+	}
+
+	// =======================================================
+	// ==              关系检测和布局集成方法               ==
+	// =======================================================
+
+	// 获取Canvas数据并初始化关系分析器
+	private async initializeRelationshipAnalyzer(canvasView: any): Promise<void> {
+		try {
+			const canvasFile = canvasView.file;
+			if (!canvasFile) {
+				console.error('Canvas file not found');
+				return;
+			}
+
+			const content = await this.app.vault.read(canvasFile);
+			const canvasData: CanvasData = JSON.parse(content);
+
+			this.relationshipAnalyzer = new NodeRelationshipAnalyzer(canvasData);
+
+			// 设置现有节点给布局计算器（用于碰撞检测）
+			this.layoutCalculator.setExistingNodes(canvasData.nodes);
+		} catch (error) {
+			console.error('Error initializing relationship analyzer:', error);
+			this.relationshipAnalyzer = null;
+		}
+	}
+
+	// 获取现有子节点（核心方法）
+	async getExistingChildNodes(parentNodeId: string, canvasView: any): Promise<CanvasNode[]> {
+		await this.initializeRelationshipAnalyzer(canvasView);
+
+		if (!this.relationshipAnalyzer) {
+			console.warn('Relationship analyzer not initialized');
+			return [];
+		}
+
+		return this.relationshipAnalyzer.getChildNodes(parentNodeId);
+	}
+
+	// 获取兄弟节点
+	async getSiblingNodes(nodeId: string, canvasView: any): Promise<CanvasNode[]> {
+		await this.initializeRelationshipAnalyzer(canvasView);
+
+		if (!this.relationshipAnalyzer) {
+			console.warn('Relationship analyzer not initialized');
+			return [];
+		}
+
+		return this.relationshipAnalyzer.getSiblingNodes(nodeId);
+	}
+
+	// 获取父节点
+	async getParentNode(childNodeId: string, canvasView: any): Promise<CanvasNode | null> {
+		await this.initializeRelationshipAnalyzer(canvasView);
+
+		if (!this.relationshipAnalyzer) {
+			console.warn('Relationship analyzer not initialized');
+			return null;
+		}
+
+		return this.relationshipAnalyzer.getParentNode(childNodeId);
+	}
+
+	// 创建独立节点（用于根节点的同级节点）
+	async createIndependentNodeAt(position: {x: number, y: number}, canvasView: any) {
+		// 生成新节点ID
+		const newNodeId = this.generateNodeId();
+
+		// 创建新的文本节点
+		const newNode = this.createTextNode(
+			newNodeId,
+			'新建独立节点',
+			position.x,
+			position.y
+		);
+
+		// 添加节点到Canvas（不创建连接线）
+		await this.addNodeToCanvas(newNode, canvasView);
+
+		console.log(`创建独立节点: ${newNodeId} at (${position.x}, ${position.y})`);
+	}
+
+	// =======================================================
+	// ==              动态重新布局系统                     ==
+	// =======================================================
+
+	// 更新单个节点位置
+	async updateNodePosition(nodeId: string, x: number, y: number, canvasView: any): Promise<boolean> {
+		try {
+			// 获取当前Canvas数据
+			const canvasFile = canvasView.file;
+			if (!canvasFile) {
+				console.error('Canvas file not found');
+				return false;
+			}
+
+			const content = await this.app.vault.read(canvasFile);
+			let canvasData: CanvasData;
+
+			try {
+				canvasData = JSON.parse(content);
+			} catch (parseError) {
+				console.error('Invalid Canvas JSON format:', parseError);
+				return false;
+			}
+
+			// 查找并更新节点位置
+			const node = canvasData.nodes.find(n => n.id === nodeId);
+			if (!node) {
+				console.error(`Node ${nodeId} not found in canvas`);
+				return false;
+			}
+
+			// 更新节点位置
+			const oldPosition = { x: node.x, y: node.y };
+			node.x = x;
+			node.y = y;
+
+			// 保存更新后的Canvas数据
+			const updatedContent = JSON.stringify(canvasData, null, '\t');
+			await this.app.vault.modify(canvasFile, updatedContent);
+
+			// 刷新Canvas视图
+			if (canvasView.canvas && canvasView.canvas.requestSave) {
+				canvasView.canvas.requestSave();
+			}
+
+			console.log(`节点位置更新: ${nodeId} from (${oldPosition.x}, ${oldPosition.y}) to (${x}, ${y})`);
+			return true;
+
+		} catch (error) {
+			console.error('Error updating node position:', error);
+			return false;
+		}
+	}
+
+	// 批量更新节点位置
+	async batchUpdateNodePositions(
+		updates: Array<{nodeId: string, x: number, y: number}>,
+		canvasView: any
+	): Promise<{success: boolean, updatedNodes: string[], failedNodes: string[]}> {
+		const result = {
+			success: true,
+			updatedNodes: [] as string[],
+			failedNodes: [] as string[]
+		};
+
+		try {
+			// 获取当前Canvas数据
+			const canvasFile = canvasView.file;
+			if (!canvasFile) {
+				console.error('Canvas file not found');
+				result.success = false;
+				return result;
+			}
+
+			const content = await this.app.vault.read(canvasFile);
+			let canvasData: CanvasData;
+
+			try {
+				canvasData = JSON.parse(content);
+			} catch (parseError) {
+				console.error('Invalid Canvas JSON format:', parseError);
+				result.success = false;
+				return result;
+			}
+
+			// 批量更新节点位置
+			updates.forEach(update => {
+				const node = canvasData.nodes.find(n => n.id === update.nodeId);
+				if (node) {
+					node.x = update.x;
+					node.y = update.y;
+					result.updatedNodes.push(update.nodeId);
+				} else {
+					result.failedNodes.push(update.nodeId);
+					console.warn(`Node ${update.nodeId} not found for position update`);
+				}
+			});
+
+			// 保存更新后的Canvas数据
+			const updatedContent = JSON.stringify(canvasData, null, '\t');
+			await this.app.vault.modify(canvasFile, updatedContent);
+
+			// 刷新Canvas视图
+			if (canvasView.canvas && canvasView.canvas.requestSave) {
+				canvasView.canvas.requestSave();
+			}
+
+			console.log(`批量位置更新完成: 成功 ${result.updatedNodes.length} 个，失败 ${result.failedNodes.length} 个`);
+
+			// 如果有失败的更新，标记为部分成功
+			if (result.failedNodes.length > 0) {
+				result.success = false;
+			}
+
+		} catch (error) {
+			console.error('Error in batch position update:', error);
+			result.success = false;
+		}
+
+		return result;
+	}
 }
 
 // =======================================================
-// ==              主插件类                            ==
+// ==              节点关系分析器                       ==
 // =======================================================
+
+class NodeRelationshipAnalyzer {
+	private canvasData: CanvasData;
+	private relationshipCache: Map<string, NodeRelationship>;
+
+	constructor(canvasData: CanvasData) {
+		this.canvasData = canvasData;
+		this.relationshipCache = new Map();
+		this.buildRelationshipCache();
+	}
+
+	// 核心方法：获取指定节点的所有子节点
+	getChildNodes(parentId: string): CanvasNode[] {
+		const relationship = this.relationshipCache.get(parentId);
+		if (!relationship) return [];
+
+		return relationship.childIds
+			.map(childId => this.findNodeById(childId))
+			.filter(node => node !== null) as CanvasNode[];
+	}
+
+	// 获取父节点
+	getParentNode(childId: string): CanvasNode | null {
+		const relationship = this.relationshipCache.get(childId);
+		if (!relationship || !relationship.parentId) return null;
+
+		return this.findNodeById(relationship.parentId);
+	}
+
+	// 获取兄弟节点
+	getSiblingNodes(nodeId: string): CanvasNode[] {
+		const relationship = this.relationshipCache.get(nodeId);
+		if (!relationship) return [];
+
+		return relationship.siblingIds
+			.map(siblingId => this.findNodeById(siblingId))
+			.filter(node => node !== null) as CanvasNode[];
+	}
+
+	// 构建完整的层级树
+	buildHierarchyTree(): NodeTree {
+		const tree: NodeTree = {
+			roots: [],
+			relationships: this.relationshipCache
+		};
+
+		// 找出所有根节点（没有父节点的节点）
+		for (const [nodeId, relationship] of this.relationshipCache) {
+			if (!relationship.parentId) {
+				tree.roots.push(nodeId);
+			}
+		}
+
+		return tree;
+	}
+
+	// 私有方法：构建关系缓存
+	private buildRelationshipCache(): void {
+		// 初始化所有节点的关系对象
+		this.canvasData.nodes.forEach(node => {
+			this.relationshipCache.set(node.id, {
+				nodeId: node.id,
+				parentId: null,
+				childIds: [],
+				siblingIds: [],
+				level: 0
+			});
+		});
+
+		// 基于edges构建父子关系
+		this.canvasData.edges.forEach(edge => {
+			const parentRelation = this.relationshipCache.get(edge.fromNode);
+			const childRelation = this.relationshipCache.get(edge.toNode);
+
+			if (parentRelation && childRelation) {
+				// 建立父子关系
+				parentRelation.childIds.push(edge.toNode);
+				childRelation.parentId = edge.fromNode;
+			}
+		});
+
+		// 构建兄弟关系
+		for (const [nodeId, relationship] of this.relationshipCache) {
+			if (relationship.parentId) {
+				const parentRelation = this.relationshipCache.get(relationship.parentId);
+				if (parentRelation) {
+					// 所有同一父节点的子节点互为兄弟
+					relationship.siblingIds = parentRelation.childIds.filter(id => id !== nodeId);
+				}
+			}
+		}
+
+		// 计算层级深度
+		this.calculateNodeLevels();
+	}
+
+	// 私有方法：计算节点层级
+	private calculateNodeLevels(): void {
+		const visited = new Set<string>();
+
+		// 从根节点开始递归计算层级
+		for (const [nodeId, relationship] of this.relationshipCache) {
+			if (!relationship.parentId && !visited.has(nodeId)) {
+				this.calculateLevelRecursive(nodeId, 0, visited);
+			}
+		}
+	}
+
+	private calculateLevelRecursive(nodeId: string, level: number, visited: Set<string>): void {
+		if (visited.has(nodeId)) return;
+
+		visited.add(nodeId);
+		const relationship = this.relationshipCache.get(nodeId);
+		if (relationship) {
+			relationship.level = level;
+
+			// 递归处理子节点
+			relationship.childIds.forEach(childId => {
+				this.calculateLevelRecursive(childId, level + 1, visited);
+			});
+		}
+	}
+
+	// 私有方法：根据ID查找节点
+	private findNodeById(nodeId: string): CanvasNode | null {
+		return this.canvasData.nodes.find(node => node.id === nodeId) || null;
+	}
+}
+
+// =======================================================
+// ==              对称布局计算器                       ==
+// =======================================================
+
+// 默认配置 - 优化后的视觉效果
+const DEFAULT_LAYOUT_CONFIG: LayoutConfig = {
+	horizontalSpacing: 100,
+	verticalSpacing: 80,        // 增加间距，改善视觉效果
+	symmetryMode: 'vertical',
+	centerAlignment: true,
+	maxVerticalSpread: 800,
+	collisionDetection: true,
+	avoidanceMargin: 20,
+	defaultNodeWidth: 250,
+	defaultNodeHeight: 60
+};
+
+class SymmetricLayoutCalculator {
+	private config: LayoutConfig;
+	private existingNodes: CanvasNode[];
+
+	constructor(config: LayoutConfig = DEFAULT_LAYOUT_CONFIG) {
+		this.config = config;
+		this.existingNodes = [];
+	}
+
+	// 核心方法：计算子节点位置
+	calculateChildNodePosition(
+		parentNode: CanvasNode,
+		existingChildren: CanvasNode[],
+		newChildIndex?: number
+	): LayoutResult {
+		// 1. 分析现有子节点布局
+		const existingLayout = this.analyzeExistingLayout(parentNode, existingChildren);
+
+		// 2. 计算新的完整布局
+		const totalChildren = existingChildren.length + 1; // 包含新节点
+		const insertIndex = newChildIndex ?? existingChildren.length;
+
+		// 3. 计算对称分布位置
+		const symmetricPositions = this.calculateSymmetricPositions(
+			parentNode,
+			totalChildren,
+			insertIndex
+		);
+
+		// 4. 应用碰撞检测和避让
+		const finalPositions = this.applyCollisionAvoidance(symmetricPositions, parentNode);
+
+		// 5. 生成布局结果
+		return this.generateLayoutResult(finalPositions, parentNode);
+	}
+
+	// 分析现有子节点布局
+	private analyzeExistingLayout(
+		parentNode: CanvasNode,
+		existingChildren: CanvasNode[]
+	): { isSymmetric: boolean; centerY: number; spacing: number } {
+		if (existingChildren.length === 0) {
+			return {
+				isSymmetric: true,
+				centerY: parentNode.y + parentNode.height / 2,
+				spacing: this.config.verticalSpacing
+			};
+		}
+
+		// 计算现有子节点的中心Y坐标
+		const childrenY = existingChildren.map(child => child.y + child.height / 2);
+		const minY = Math.min(...childrenY);
+		const maxY = Math.max(...childrenY);
+		const centerY = (minY + maxY) / 2;
+
+		// 检查是否为对称布局
+		const parentCenterY = parentNode.y + parentNode.height / 2;
+		const isSymmetric = Math.abs(centerY - parentCenterY) < 10; // 10px容差
+
+		// 计算平均间距
+		const spacing = existingChildren.length > 1
+			? (maxY - minY) / (existingChildren.length - 1)
+			: this.config.verticalSpacing;
+
+		return { isSymmetric, centerY, spacing };
+	}
+
+	// 计算对称分布位置 - 优化后的视觉中心对齐 (公共方法)
+	calculateSymmetricPositions(
+		parentNode: CanvasNode,
+		totalChildren: number,
+		insertIndex: number
+	): ChildNodePosition[] {
+		const positions: ChildNodePosition[] = [];
+
+		// 计算布局参数
+		const parentCenterY = parentNode.y + parentNode.height / 2;
+		const childHeight = this.config.defaultNodeHeight;
+
+		// 计算总布局高度（考虑节点高度）
+		const totalHeight = (totalChildren - 1) * this.config.verticalSpacing;
+
+		// 计算起始Y坐标，使子节点的视觉中心对称分布
+		const firstChildCenterY = parentCenterY - totalHeight / 2;
+		const startY = firstChildCenterY - childHeight / 2;
+
+		// 计算X坐标（父节点右侧）
+		const childX = parentNode.x + parentNode.width + this.config.horizontalSpacing;
+
+		// 为每个子节点计算位置
+		for (let i = 0; i < totalChildren; i++) {
+			// 计算子节点的Y坐标（顶部坐标）
+			const childY = startY + i * this.config.verticalSpacing;
+
+			positions.push({
+				x: childX,
+				y: childY,
+				index: i,
+				level: 1, // 假设为第一级子节点
+				isSymmetric: true,
+				avoidanceApplied: false
+			});
+		}
+
+		// 添加调试信息
+		console.log(`对称布局计算: 父节点中心Y=${parentCenterY}, 总子节点=${totalChildren}, 总高度=${totalHeight}`);
+		console.log(`子节点位置:`, positions.map(p => `(${p.x}, ${p.y})`));
+
+		return positions;
+	}
+
+	// 应用碰撞检测和避让
+	private applyCollisionAvoidance(
+		positions: ChildNodePosition[],
+		parentNode: CanvasNode
+	): ChildNodePosition[] {
+		if (!this.config.collisionDetection) {
+			return positions;
+		}
+
+		const adjustedPositions = [...positions];
+
+		for (let i = 0; i < adjustedPositions.length; i++) {
+			const position = adjustedPositions[i];
+			const nodeRect = {
+				x: position.x,
+				y: position.y,
+				width: this.config.defaultNodeWidth,
+				height: this.config.defaultNodeHeight
+			};
+
+			// 检查与现有节点的碰撞
+			const collision = this.detectCollision(nodeRect);
+			if (collision) {
+				// 应用避让策略
+				const avoidedPosition = this.applyAvoidanceStrategy(position, collision);
+				adjustedPositions[i] = {
+					...avoidedPosition,
+					avoidanceApplied: true
+				};
+			}
+		}
+
+		return adjustedPositions;
+	}
+
+	// 碰撞检测
+	private detectCollision(nodeRect: { x: number; y: number; width: number; height: number }): CanvasNode | null {
+		for (const existingNode of this.existingNodes) {
+			if (this.isRectOverlap(nodeRect, existingNode)) {
+				return existingNode;
+			}
+		}
+		return null;
+	}
+
+	// 矩形重叠检测
+	private isRectOverlap(
+		rect1: { x: number; y: number; width: number; height: number },
+		rect2: { x: number; y: number; width: number; height: number }
+	): boolean {
+		const margin = this.config.avoidanceMargin;
+
+		return !(
+			rect1.x + rect1.width + margin < rect2.x ||
+			rect2.x + rect2.width + margin < rect1.x ||
+			rect1.y + rect1.height + margin < rect2.y ||
+			rect2.y + rect2.height + margin < rect1.y
+		);
+	}
+
+	// 避让策略
+	private applyAvoidanceStrategy(
+		position: ChildNodePosition,
+		collision: CanvasNode
+	): ChildNodePosition {
+		// 简单策略：向下偏移
+		const avoidanceOffset = collision.height + this.config.avoidanceMargin;
+
+		return {
+			...position,
+			y: collision.y + avoidanceOffset
+		};
+	}
+
+	// 生成布局结果
+	private generateLayoutResult(
+		positions: ChildNodePosition[],
+		parentNode: CanvasNode
+	): LayoutResult {
+		const warnings: string[] = [];
+
+		// 计算布局范围
+		const yCoords = positions.map(p => p.y);
+		const minY = Math.min(...yCoords);
+		const maxY = Math.max(...yCoords);
+		const totalHeight = maxY - minY + this.config.defaultNodeHeight;
+		const totalWidth = this.config.horizontalSpacing + this.config.defaultNodeWidth;
+		const centerY = (minY + maxY) / 2;
+
+		// 检查布局质量
+		if (totalHeight > this.config.maxVerticalSpread) {
+			warnings.push(`布局高度 (${totalHeight}px) 超过最大限制 (${this.config.maxVerticalSpread}px)`);
+		}
+
+		const avoidanceCount = positions.filter(p => p.avoidanceApplied).length;
+		if (avoidanceCount > 0) {
+			warnings.push(`${avoidanceCount} 个节点应用了碰撞避让`);
+		}
+
+		return {
+			positions,
+			totalHeight,
+			totalWidth,
+			centerY,
+			warnings
+		};
+	}
+
+	// 设置现有节点（用于碰撞检测）
+	setExistingNodes(nodes: CanvasNode[]): void {
+		this.existingNodes = nodes;
+	}
+
+	// 更新配置
+	updateConfig(newConfig: Partial<LayoutConfig>): void {
+		this.config = { ...this.config, ...newConfig };
+	}
+}
 export default class VisualKnowledgeWorkbenchPlugin extends Plugin {
 	settings: PluginSettings;
 	canvasIntegration: CanvasIntegration;
@@ -433,6 +1219,42 @@ export default class VisualKnowledgeWorkbenchPlugin extends Plugin {
 			name: '打开全局卡片库',
 			callback: () => {
 				this.activateCardLibraryView();
+			}
+		});
+
+		// 添加命令：创建子节点 (思维导图式交互)
+		this.addCommand({
+			id: 'create-child-node',
+			name: '创建子节点',
+			checkCallback: (checking: boolean) => {
+				const activeCanvas = this.getActiveCanvasView();
+				const hasSelection = this.hasSelectedCanvasNode();
+
+				if (activeCanvas && hasSelection) {
+					if (!checking) {
+						this.createChildNode();
+					}
+					return true;
+				}
+				return false;
+			}
+		});
+
+		// 添加命令：创建同级节点 (思维导图式交互)
+		this.addCommand({
+			id: 'create-sibling-node',
+			name: '创建同级节点',
+			checkCallback: (checking: boolean) => {
+				const activeCanvas = this.getActiveCanvasView();
+				const hasSelection = this.hasSelectedCanvasNode();
+
+				if (activeCanvas && hasSelection) {
+					if (!checking) {
+						this.createSiblingNode();
+					}
+					return true;
+				}
+				return false;
 			}
 		});
 
@@ -479,6 +1301,124 @@ export default class VisualKnowledgeWorkbenchPlugin extends Plugin {
 
 	async saveSettings() {
 		await this.saveData(this.settings);
+	}
+
+	// =======================================================
+	// ==              Canvas交互辅助方法                   ==
+	// =======================================================
+
+	// 获取当前活动的Canvas视图
+	getActiveCanvasView(): any | null {
+		const activeLeaf = this.app.workspace.activeLeaf;
+		if (activeLeaf && activeLeaf.view.getViewType() === 'canvas') {
+			return activeLeaf.view;
+		}
+		return null;
+	}
+
+	// 检查是否有选中的Canvas节点
+	hasSelectedCanvasNode(): boolean {
+		const canvasView = this.getActiveCanvasView();
+		if (!canvasView || !canvasView.canvas) {
+			return false;
+		}
+
+		// 检查Canvas中是否有选中的节点
+		const selection = canvasView.canvas.selection;
+		return selection && selection.size > 0;
+	}
+
+	// 获取选中的Canvas节点
+	getSelectedCanvasNodes(): any[] {
+		const canvasView = this.getActiveCanvasView();
+		if (!canvasView || !canvasView.canvas) {
+			return [];
+		}
+
+		const selection = canvasView.canvas.selection;
+		if (!selection || selection.size === 0) {
+			return [];
+		}
+
+		return Array.from(selection);
+	}
+
+	// 创建子节点 (思维导图式交互)
+	async createChildNode() {
+		const canvasView = this.getActiveCanvasView();
+		const selectedNodes = this.getSelectedCanvasNodes();
+
+		if (!canvasView || selectedNodes.length !== 1) {
+			new Notice('请选择一个节点来创建子节点');
+			return;
+		}
+
+		const parentNode = selectedNodes[0];
+
+		// 计算子节点位置 (父节点右侧)
+		const childPosition = {
+			x: parentNode.x + (parentNode.width || 250) + 100,
+			y: parentNode.y
+		};
+
+		// 通过CanvasIntegration创建节点
+		await this.canvasIntegration.createChildNodeAt(parentNode, childPosition, canvasView);
+
+		new Notice('已创建子节点');
+	}
+
+	// 创建同级节点 (思维导图式交互) - 修复后的正确逻辑
+	async createSiblingNode() {
+		const canvasView = this.getActiveCanvasView();
+		const selectedNodes = this.getSelectedCanvasNodes();
+
+		if (!canvasView || selectedNodes.length !== 1) {
+			new Notice('请选择一个节点来创建同级节点');
+			return;
+		}
+
+		const selectedNode = selectedNodes[0];
+
+		try {
+			// 1. 检测选中节点的父节点
+			const parentNode = await this.canvasIntegration.getParentNode(selectedNode.id, canvasView);
+
+			if (parentNode) {
+				// 2. 选中节点有父节点 - 创建真正的同级节点
+				console.log(`创建同级节点: 选中节点 ${selectedNode.id} 的父节点是 ${parentNode.id}`);
+
+				// 3. 获取现有子节点（包括选中节点本身）
+				const existingChildren = await this.canvasIntegration.getExistingChildNodes(parentNode.id, canvasView);
+				console.log(`父节点 ${parentNode.id} 现有 ${existingChildren.length} 个子节点`);
+
+				// 4. 使用智能布局在父节点下创建新子节点
+				await this.canvasIntegration.createChildNodeAt(parentNode, { x: 0, y: 0 }, canvasView);
+
+				new Notice(`已在父节点下创建同级节点 (共 ${existingChildren.length + 1} 个子节点)`);
+
+			} else {
+				// 5. 选中节点是根节点 - 创建独立的同级根节点
+				console.log(`创建独立节点: 选中节点 ${selectedNode.id} 是根节点`);
+
+				const independentPosition = this.calculateIndependentNodePosition(selectedNode);
+				await this.canvasIntegration.createIndependentNodeAt(independentPosition, canvasView);
+
+				new Notice('已创建独立的同级节点');
+			}
+
+		} catch (error) {
+			console.error('Error creating sibling node:', error);
+			new Notice('创建同级节点失败，请重试');
+		}
+	}
+
+	// 计算独立节点位置（用于根节点的同级节点）
+	private calculateIndependentNodePosition(referenceNode: any): {x: number, y: number} {
+		const spacing = 70; // 默认间距
+		return {
+			x: referenceNode.x,
+			y: referenceNode.y + (referenceNode.height || 60) + spacing
+		};
 	}
 
 	// 运行集成测试
