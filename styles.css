@@ -107,33 +107,281 @@ including card library, canvas enhancements, and responsive design.
   color: var(--vkw-text-muted);
 }
 
-/* 标签筛选器 */
+/* 标签筛选器 - 统一样式 */
 .card-library-tags {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--vkw-spacing-xs);
+  gap: var(--size-2-2);
+  padding: var(--size-2-2) 0;
+  align-items: center;
 }
 
-.tag-filter-button {
-  padding: 2px var(--vkw-spacing-xs);
-  background: var(--background-primary);
-  border: 1px solid var(--vkw-border-color);
-  border-radius: 3px;
-  color: var(--vkw-text-muted);
-  font-size: 10px;
+/* 原生Obsidian标签样式增强 - 统一版本 */
+.card-library-tags .tag {
+  /* 继承Obsidian原生标签样式，添加插件特定的增强 */
+  margin: var(--size-2-1);
   cursor: pointer;
-  transition: var(--vkw-transition);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  text-decoration: none;
+  font-size: var(--font-ui-small);
+
+  /* 统一的现代样式 */
+  border-radius: var(--radius-s);
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 
-.tag-filter-button:hover {
-  background: var(--vkw-hover-color);
-  border-color: var(--vkw-primary-color);
+.card-library-tags .tag:hover {
+  /* 悬停效果与Obsidian主题保持一致 */
+  opacity: 0.9;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
-.tag-filter-button.active {
-  background: var(--vkw-primary-color);
-  border-color: var(--vkw-primary-color);
+.card-library-tags .tag.is-active {
+  /* 激活状态样式 - 统一版本 */
+  background: var(--interactive-accent);
   color: var(--text-on-accent);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+  transform: translateY(-1px);
+
+  /* 激活状态的增强效果 */
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+/* 标签筛选器标题样式 */
+.tag-filter-label {
+  font-weight: var(--font-weight-medium);
+  color: var(--text-normal);
+  font-size: var(--font-ui-small);
+  margin-bottom: var(--size-2-2);
+  display: block;
+}
+
+/* 文档优先切换 - 统一样式 */
+.document-priority-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--size-2-3);
+  margin-top: var(--size-4-3);
+  padding: var(--size-4-3);
+  background: var(--background-secondary);
+  border-radius: var(--radius-m);
+  border: 1px solid var(--background-modifier-border);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  transition: all 0.2s ease;
+
+  /* 现代设计 */
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.document-priority-toggle:hover {
+  background: var(--background-modifier-hover);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+}
+
+.document-priority-checkbox {
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--interactive-accent);
+}
+
+.document-priority-label {
+  font-size: var(--font-ui-small);
+  color: var(--text-normal);
+  cursor: pointer;
+  user-select: none;
+  margin: 0;
+  font-weight: var(--font-weight-medium);
+}
+
+/* 卡片内容布局 - 美化版本 */
+.card-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-2-2);
+  width: 100%;
+  min-height: 0; /* 允许内容收缩 */
+}
+
+.card-title {
+  font-weight: var(--font-weight-medium);
+  color: var(--text-normal);
+  line-height: 1.4;
+  font-size: var(--font-ui-medium);
+  margin: 0;
+
+  /* 文本溢出处理 */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+  hyphens: auto;
+}
+
+/* 卡片标签样式 - 美化版本 */
+.card-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--size-2-1);
+  margin-top: var(--size-2-1);
+  align-items: center;
+}
+
+.card-tags .card-tag {
+  font-size: var(--font-ui-smaller);
+  padding: var(--size-2-1) var(--size-2-2);
+  opacity: 0.9;
+  transition: all 0.2s ease;
+  border-radius: var(--radius-s);
+
+  /* 增强的标签样式 */
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.card-tags .card-tag:hover {
+  opacity: 1;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.card-tags-more {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  background: var(--background-modifier-border);
+  padding: var(--size-2-1) var(--size-2-2);
+  border-radius: var(--radius-s);
+  cursor: help;
+  transition: all 0.2s ease;
+
+  /* 现代样式 */
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+}
+
+.card-tags-more:hover {
+  background: var(--background-modifier-border-hover);
+  transform: translateY(-1px);
+}
+
+/* 增强的画布选择器样式 */
+.canvas-selector {
+  min-width: 200px;
+  max-width: 300px;
+  font-family: var(--font-interface);
+}
+
+.canvas-selector option {
+  padding: 4px 8px;
+  line-height: 1.4;
+}
+
+.canvas-selector option[disabled] {
+  color: var(--text-muted);
+  font-style: italic;
+  background: var(--background-secondary);
+}
+
+.canvas-selector option:not([disabled]):hover {
+  background: var(--background-modifier-hover);
+}
+
+/* 画布选择器标签样式 */
+.canvas-selector-label {
+  font-weight: 500;
+  color: var(--text-normal);
+  margin-bottom: var(--vkw-spacing-xs);
+  display: block;
+}
+
+/* 筛选状态显示 - 统一样式 */
+.filter-status-display {
+  margin: var(--size-4-3) 0;
+  padding: var(--size-4-3);
+  background: var(--background-secondary);
+  border-radius: var(--radius-m);
+  border: 1px solid var(--background-modifier-border);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+
+  /* 现代设计 */
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.filter-status-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--size-2-3);
+  flex-wrap: wrap;
+}
+
+.filter-mode {
+  font-weight: var(--font-weight-medium);
+  color: var(--text-accent);
+  background: var(--background-modifier-border);
+  padding: var(--size-2-1) var(--size-2-3);
+  border-radius: var(--radius-s);
+  font-size: var(--font-ui-small);
+
+  /* 统一的现代样式 */
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.active-filters {
+  display: flex;
+  gap: var(--size-2-2);
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.filter-chip {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  padding: var(--size-2-1) var(--size-2-3);
+  border-radius: var(--radius-s);
+  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-weight-medium);
+
+  /* 与标签样式保持一致 */
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  transition: all 0.2s ease;
+}
+
+.filter-chip:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+}
+
+.filter-clear-button {
+  background: var(--interactive-normal);
+  color: var(--text-normal);
+  border: 1px solid var(--background-modifier-border);
+  padding: var(--size-2-1) var(--size-2-3);
+  border-radius: var(--radius-s);
+  font-size: var(--font-ui-smaller);
+  cursor: pointer;
+  transition: all 0.2s ease;
+
+  /* 统一的按钮样式 */
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.filter-clear-button:hover {
+  background: var(--interactive-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
 /* 卡片列表容器 */
@@ -146,129 +394,465 @@ including card library, canvas enhancements, and responsive design.
   padding: var(--vkw-spacing-xs) 0;
 }
 
-/* 卡片项 */
+/* 卡片项 - 美化版本 */
 .card-library-item {
-  padding: var(--vkw-spacing-sm) var(--vkw-spacing-md);
-  background: var(--vkw-secondary-color);
-  border-radius: var(--vkw-border-radius);
-  border: 1px solid var(--vkw-border-color);
+  padding: var(--size-4-3) var(--size-4-4);
+  background: var(--background-primary);
+  border-radius: var(--radius-m);
+  border: 1px solid var(--background-modifier-border);
   cursor: grab;
-  transition: var(--vkw-transition);
-  font-size: 13px;
-  line-height: 1.4;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  color: var(--vkw-text-color);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  margin-bottom: var(--size-4-2);
+  font-size: var(--font-ui-small);
+  line-height: 1.5;
+  color: var(--text-normal);
   position: relative;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  overflow: visible; /* 允许标签和内容正常显示 */
+
+  /* 现代卡片设计 */
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
 }
 
 .card-library-item:hover {
-  background: var(--vkw-hover-color);
-  border-color: var(--vkw-primary-color);
-  transform: translateY(-1px);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  background: var(--background-modifier-hover);
+  border-color: var(--interactive-accent);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+
+  /* 增强的悬停效果 */
+  backdrop-filter: blur(15px);
+  -webkit-backdrop-filter: blur(15px);
 }
 
 .card-library-item:active {
   cursor: grabbing;
-  background: var(--vkw-active-color);
-  transform: scale(0.98);
+  background: var(--background-modifier-active-hover);
+  transform: scale(0.98) translateY(0);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+  transition: all 0.1s ease;
 }
 
-/* 原生卡片项特殊样式 */
+/* 原生卡片项特殊样式 - 美化版本 */
 .card-library-item.native-card-item {
-  border-left: 3px solid var(--vkw-primary-color);
-  padding-left: calc(var(--vkw-spacing-md) - 3px);
+  border-left: 3px solid var(--interactive-accent);
+  padding-left: calc(var(--size-4-4) - 3px);
+  background: linear-gradient(135deg, var(--background-primary) 0%, var(--background-secondary) 100%);
 }
 
 .card-library-item.native-card-item::before {
   content: "📝";
   position: absolute;
-  right: var(--vkw-spacing-sm);
-  top: 50%;
-  transform: translateY(-50%);
-  font-size: 10px;
-  opacity: 0.6;
+  right: var(--size-4-2);
+  top: var(--size-4-2);
+  font-size: var(--font-ui-small);
+  opacity: 0.7;
+  transition: all 0.2s ease;
+  background: var(--background-modifier-border);
+  padding: var(--size-2-1);
+  border-radius: var(--radius-s);
+  line-height: 1;
 }
 
-/* 文件卡片项图标 */
+.card-library-item.native-card-item:hover::before {
+  opacity: 1;
+  transform: scale(1.1);
+}
+
+/* 文件卡片项图标 - 美化版本 */
 .card-library-item:not(.native-card-item)::before {
   content: "📄";
   position: absolute;
-  right: var(--vkw-spacing-sm);
-  top: 50%;
-  transform: translateY(-50%);
-  font-size: 10px;
-  opacity: 0.6;
+  right: var(--size-4-2);
+  top: var(--size-4-2);
+  font-size: var(--font-ui-small);
+  opacity: 0.7;
+  transition: all 0.2s ease;
+  background: var(--background-modifier-border);
+  padding: var(--size-2-1);
+  border-radius: var(--radius-s);
+  line-height: 1;
 }
 
-/* 拖拽状态 */
+.card-library-item:not(.native-card-item):hover::before {
+  opacity: 1;
+  transform: scale(1.1);
+}
+
+/* 拖拽状态 - 美化版本 */
 .card-library-item.dragging {
-  opacity: 0.5;
-  transform: rotate(2deg);
+  opacity: 0.6;
+  transform: rotate(3deg) scale(1.05);
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.25);
+  z-index: 1000;
+  transition: none; /* 拖拽时禁用过渡 */
 }
 
-/* 空状态 */
+/* 空状态 - 美化版本 */
 .card-library-empty {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   flex: 1;
-  color: var(--vkw-text-muted);
-  font-size: 12px;
+  color: var(--text-muted);
+  font-size: var(--font-ui-medium);
   text-align: center;
-  padding: var(--vkw-spacing-lg);
+  padding: var(--size-4-8);
+  background: var(--background-secondary);
+  border-radius: var(--radius-l);
+  margin: var(--size-4-4);
+  border: 2px dashed var(--background-modifier-border);
 }
 
 .card-library-empty-icon {
-  font-size: 24px;
-  margin-bottom: var(--vkw-spacing-sm);
-  opacity: 0.5;
+  font-size: var(--font-ui-larger);
+  margin-bottom: var(--size-4-4);
+  opacity: 0.6;
+  animation: gentle-pulse 2s ease-in-out infinite;
+}
+
+/* 温和的脉冲动画 */
+@keyframes gentle-pulse {
+  0%, 100% { opacity: 0.6; transform: scale(1); }
+  50% { opacity: 0.8; transform: scale(1.05); }
+}
+
+/* 卡片焦点状态 */
+.card-library-item:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 2px;
+  border-color: var(--interactive-accent);
+}
+
+/* 卡片选中状态（如果需要） */
+.card-library-item.selected {
+  background: var(--background-modifier-active);
+  border-color: var(--interactive-accent);
+  box-shadow: 0 0 0 2px var(--interactive-accent-hover);
+}
+
+/* 卡片加载状态 */
+.card-library-item.loading {
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+.card-library-item.loading::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+  animation: shimmer 1.5s infinite;
+}
+
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+/* 卡片类型指示器增强 */
+.card-library-item::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 0 12px 12px 0;
+  border-color: transparent var(--background-modifier-border) transparent transparent;
+  opacity: 0.3;
+  transition: opacity 0.2s ease;
+}
+
+.card-library-item:hover::after {
+  opacity: 0.6;
+}
+
+/* 全局标签样式统一 */
+.card-library-view .tag {
+  /* 确保所有标签都有一致的基础样式 */
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--font-interface);
+  font-size: var(--font-ui-small);
+  line-height: 1.2;
+  border-radius: var(--radius-s);
+  text-decoration: none;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* 现代标签设计 */
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.card-library-view .tag:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* 标签动画效果 */
+@keyframes tag-appear {
+  from {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.card-library-view .tag {
+  animation: tag-appear 0.2s ease-out;
 }
 
 /* =======================================================
-   响应式设计
+   响应式设计 - 增强版本
    ======================================================= */
 
-/* 小屏幕适配 */
-@media (max-width: 768px) {
+/* 超小屏幕适配 (手机竖屏) */
+@media (max-width: 480px) {
   .card-library-filters {
-    padding: var(--vkw-spacing-xs);
+    padding: var(--size-2-2);
+    flex-direction: column;
+    gap: var(--size-2-3);
+  }
+
+  .filter-status-summary {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--size-2-2);
   }
 
   .card-library-item {
-    padding: var(--vkw-spacing-xs) var(--vkw-spacing-sm);
-    font-size: 12px;
+    padding: var(--size-2-3) var(--size-4-3);
+    font-size: var(--font-ui-smaller);
+    margin-bottom: var(--size-2-1);
   }
 
-  .card-library-tags {
-    gap: 2px;
+  .card-title {
+    font-size: var(--font-ui-small);
+    -webkit-line-clamp: 3; /* 允许更多行 */
   }
 
-  .tag-filter-button {
-    font-size: 9px;
-    padding: 1px 3px;
+  .card-tags {
+    gap: var(--size-2-1);
+  }
+
+  .card-tags .card-tag {
+    font-size: var(--font-ui-smaller);
+    padding: 1px var(--size-2-1);
+  }
+
+  .canvas-selector {
+    min-width: 100%;
+    max-width: 100%;
   }
 }
 
-/* 高对比度模式支持 */
+/* 小屏幕适配 (手机横屏/小平板) */
+@media (max-width: 768px) and (min-width: 481px) {
+  .card-library-filters {
+    padding: var(--size-4-2);
+    gap: var(--size-2-3);
+  }
+
+  .card-library-item {
+    padding: var(--size-4-3) var(--size-4-4);
+    font-size: var(--font-ui-small);
+  }
+
+  .card-library-tags .tag {
+    font-size: var(--font-ui-smaller);
+    padding: var(--size-2-1) var(--size-2-2);
+  }
+
+  .canvas-selector {
+    min-width: 180px;
+    max-width: 250px;
+  }
+}
+
+/* 中等屏幕适配 (平板) */
+@media (max-width: 1024px) and (min-width: 769px) {
+  .card-library-item {
+    padding: var(--size-4-4) var(--size-4-5);
+  }
+
+  .filter-status-display {
+    margin: var(--size-4-2) 0;
+  }
+}
+
+/* 大屏幕优化 */
+@media (min-width: 1400px) {
+  .card-library-item {
+    padding: var(--size-4-5) var(--size-4-6);
+  }
+
+  .card-title {
+    font-size: var(--font-ui-large);
+  }
+
+  .card-tags .card-tag {
+    font-size: var(--font-ui-small);
+    padding: var(--size-2-2) var(--size-2-3);
+  }
+}
+
+/* =======================================================
+   可访问性增强
+   ======================================================= */
+
+/* 屏幕阅读器专用内容 */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* 焦点指示器增强 */
+.card-library-item:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 2px;
+  border-color: var(--interactive-accent);
+  z-index: 1;
+}
+
+/* 跳过链接（如果需要） */
+.skip-link {
+  position: absolute;
+  top: -40px;
+  left: 6px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  padding: 8px;
+  text-decoration: none;
+  border-radius: var(--radius-s);
+  z-index: 1000;
+  border: 2px solid var(--interactive-accent);
+}
+
+.skip-link:focus {
+  top: 6px;
+}
+
+/* 高对比度模式支持 - 增强版本 */
 @media (prefers-contrast: high) {
   .card-library-item {
     border-width: 2px;
+    box-shadow: none;
   }
 
   .card-library-item:hover {
+    border-width: 3px;
+    box-shadow: none;
+  }
+
+  .card-library-item:focus-visible {
+    outline-width: 3px;
+    outline-offset: 3px;
+  }
+
+  .tag, .filter-chip {
+    border: 2px solid currentColor;
+    box-shadow: none;
+  }
+
+  .filter-clear-button {
     border-width: 2px;
+    box-shadow: none;
   }
 }
 
-/* 减少动画模式支持 */
+/* 减少动画模式支持 - 增强版本 */
 @media (prefers-reduced-motion: reduce) {
-  * {
-    transition: none !important;
-    animation: none !important;
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  /* 保留重要的焦点指示器 */
+  .card-library-item:focus-visible {
+    transition: outline 0.1s ease !important;
+  }
+}
+
+/* 强制颜色模式支持 */
+@media (forced-colors: active) {
+  .card-library-item {
+    border: 1px solid ButtonBorder;
+    background: ButtonFace;
+    color: ButtonText;
+  }
+
+  .card-library-item:hover {
+    border-color: Highlight;
+    background: Highlight;
+    color: HighlightText;
+  }
+
+  .tag, .filter-chip {
+    border: 1px solid ButtonBorder;
+    background: ButtonFace;
+    color: ButtonText;
+  }
+
+  .tag.is-active, .filter-chip {
+    background: Highlight;
+    color: HighlightText;
+  }
+}
+
+/* 深色模式优化 */
+@media (prefers-color-scheme: dark) {
+  .card-library-item {
+    box-shadow: 0 1px 3px rgba(255, 255, 255, 0.05);
+  }
+
+  .card-library-item:hover {
+    box-shadow: 0 4px 12px rgba(255, 255, 255, 0.1);
+  }
+}
+
+/* 触摸设备优化 */
+@media (hover: none) and (pointer: coarse) {
+  .card-library-item {
+    min-height: 44px; /* 触摸目标最小尺寸 */
+    padding: var(--size-4-4) var(--size-4-5);
+  }
+
+  .tag, .filter-chip, .filter-clear-button {
+    min-height: 32px; /* 触摸目标最小尺寸 */
+    padding: var(--size-2-2) var(--size-2-3);
+  }
+
+  .document-priority-checkbox {
+    min-width: 20px;
+    min-height: 20px;
+  }
+
+  /* 移除悬停效果 */
+  .card-library-item:hover {
+    transform: none;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
   }
 }
 

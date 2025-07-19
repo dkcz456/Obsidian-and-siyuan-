@@ -129,12 +129,30 @@ interface NodeTree {
 
 // 筛选状态接口
 interface FilterState {
-	mode: 'global' | 'canvas';
+	mode: 'folder' | 'canvas'; // 将'global'替换为'folder'
+	selectedFolder?: string;    // 新增：选中的文件夹路径
 	selectedCanvas?: string;
 	selectedTags: string[];
 	searchQuery: string;
 	sortBy: 'title' | 'modified' | 'created';
 	sortOrder: 'asc' | 'desc';
+}
+
+// 文件夹节点接口
+interface FolderNode {
+	path: string;
+	name: string;
+	children: FolderNode[];
+	fileCount: number;
+}
+
+// 筛选统计接口
+interface FilterStats {
+	total: number;
+	filtered: number;
+	fileCards: number;
+	nativeCards: number;
+	taggedCards: number;
 }
 
 // 插件设置接口
@@ -145,6 +163,9 @@ interface PluginSettings {
 	maxCardsPerView: number;
 	enableVirtualScrolling: boolean;
 	autoSaveInterval: number;
+	prioritizeDocumentNodes: boolean; // 新增：优先显示文档支持的节点
+	persistFilterState: boolean; // 新增：是否持久化筛选状态
+	lastFilterState?: FilterState; // 新增：上次的筛选状态
 }
 
 const DEFAULT_SETTINGS: PluginSettings = {
@@ -153,7 +174,9 @@ const DEFAULT_SETTINGS: PluginSettings = {
 	showFileExtensions: false,
 	maxCardsPerView: 1000,
 	enableVirtualScrolling: true,
-	autoSaveInterval: 2000
+	autoSaveInterval: 2000,
+	prioritizeDocumentNodes: true, // 默认启用文档节点优先
+	persistFilterState: true // 默认启用筛选状态持久化
 }
 
 // =======================================================
@@ -1467,6 +1490,118 @@ export default class VisualKnowledgeWorkbenchPlugin extends Plugin {
 }
 
 // =======================================================
+// ==              筛选状态管理器                      ==
+// =======================================================
+class FilterStateManager {
+	private plugin: VisualKnowledgeWorkbenchPlugin;
+	private currentState: FilterState;
+	private defaultState: FilterState;
+
+	constructor(plugin: VisualKnowledgeWorkbenchPlugin) {
+		this.plugin = plugin;
+		this.defaultState = {
+			mode: 'folder',
+			selectedFolder: '',
+			selectedCanvas: undefined,
+			selectedTags: [],
+			searchQuery: '',
+			sortBy: 'modified',
+			sortOrder: 'desc'
+		};
+		this.currentState = { ...this.defaultState };
+	}
+
+	// 初始化状态管理器
+	async initialize(): Promise<void> {
+		if (this.plugin.settings.persistFilterState && this.plugin.settings.lastFilterState) {
+			// 恢复上次保存的状态
+			const savedState = this.plugin.settings.lastFilterState;
+			if (this.validateFilterState(savedState)) {
+				this.currentState = { ...savedState };
+			}
+		}
+	}
+
+	// 获取当前筛选状态
+	getState(): FilterState {
+		return { ...this.currentState };
+	}
+
+	// 更新筛选状态
+	async updateState(updates: Partial<FilterState>): Promise<void> {
+		const newState = { ...this.currentState, ...updates };
+
+		if (this.validateFilterState(newState)) {
+			this.currentState = newState;
+
+			// 如果启用了持久化，保存到设置中
+			if (this.plugin.settings.persistFilterState) {
+				await this.saveState();
+			}
+		}
+	}
+
+	// 重置到默认状态
+	async resetState(): Promise<void> {
+		this.currentState = { ...this.defaultState };
+		if (this.plugin.settings.persistFilterState) {
+			await this.saveState();
+		}
+	}
+
+	// 验证筛选状态的有效性
+	private validateFilterState(state: FilterState): boolean {
+		// 验证模式
+		if (!['folder', 'canvas'].includes(state.mode)) {
+			return false;
+		}
+
+		// 验证排序字段
+		if (!['title', 'modified', 'created'].includes(state.sortBy)) {
+			return false;
+		}
+
+		// 验证排序顺序
+		if (!['asc', 'desc'].includes(state.sortOrder)) {
+			return false;
+		}
+
+		// 验证标签数组
+		if (!Array.isArray(state.selectedTags)) {
+			return false;
+		}
+
+		// 验证搜索查询
+		if (typeof state.searchQuery !== 'string') {
+			return false;
+		}
+
+		return true;
+	}
+
+	// 保存状态到插件设置
+	private async saveState(): Promise<void> {
+		this.plugin.settings.lastFilterState = { ...this.currentState };
+		await this.plugin.saveSettings();
+	}
+
+	// 获取状态摘要（用于调试）
+	getStateSummary(): string {
+		const state = this.currentState;
+		const parts = [
+			`模式: ${state.mode}`,
+			state.selectedFolder ? `文件夹: ${state.selectedFolder}` : '',
+			state.selectedCanvas ? `画布: ${state.selectedCanvas}` : '',
+			state.selectedTags.length > 0 ? `标签: ${state.selectedTags.join(', ')}` : '',
+			state.searchQuery ? `搜索: "${state.searchQuery}"` : '',
+			`排序: ${state.sortBy} (${state.sortOrder})`
+		].filter(Boolean);
+
+		return parts.join(' | ');
+	}
+}
+
+// =======================================================
 // ==              卡片库视图类                        ==
 // =======================================================
 export class CardLibraryView extends ItemView {
@@ -1476,14 +1611,18 @@ export class CardLibraryView extends ItemView {
 	private canvasSelector: HTMLSelectElement;
 	private tagFilterEl: HTMLElement;
 	private searchEl: HTMLInputElement;
-	private currentFilterMode: 'global' | 'canvas' = 'global';
+	private currentFilterMode: 'folder' | 'canvas' = 'folder';
+	private selectedFolderPath: string | null = null; // 新增：选中的文件夹路径
 	private selectedCanvasPath: string | null = null;
 	private selectedTags: string[] = [];
 	private searchQuery: string = '';
+	private filterStateManager: FilterStateManager;
+	private filterStatusEl: HTMLElement;
 
 	constructor(leaf: WorkspaceLeaf, plugin: VisualKnowledgeWorkbenchPlugin) {
 		super(leaf);
 		this.plugin = plugin;
+		this.filterStateManager = new FilterStateManager(plugin);
 	}
 
 	getViewType() {
@@ -1503,11 +1642,21 @@ export class CardLibraryView extends ItemView {
 		container.empty();
 		container.createEl("h4", { text: "全局卡片库" });
 
+		// 初始化筛选状态管理器
+		await this.filterStateManager.initialize();
+
+		// 恢复筛选状态
+		await this.restoreFilterState();
+
 		// 创建筛选器容器
 		this.filterEl = container.createDiv('card-library-filters');
 		this.createCanvasSelector();
 		this.createSearchBox();
 		this.createTagFilter();
+		this.createDocumentPriorityToggle();
+
+		// 创建筛选状态显示区域
+		this.createFilterStatusDisplay();
 
 		// 创建卡片列表容器
 		this.cardListEl = container.createDiv('card-library-list');
@@ -1517,14 +1666,71 @@ export class CardLibraryView extends ItemView {
 	}
 
 	async onClose() {
-		// 清理工作
+		// 保存当前筛选状态
+		await this.saveCurrentFilterState();
 	}
 
-	// 创建画布选择器
+	// 恢复筛选状态
+	private async restoreFilterState(): Promise<void> {
+		const state = this.filterStateManager.getState();
+
+		// 恢复筛选模式和选择
+		this.currentFilterMode = state.mode;
+		this.selectedFolderPath = state.selectedFolder || null;
+		this.selectedCanvasPath = state.selectedCanvas || null;
+		this.selectedTags = [...state.selectedTags];
+		this.searchQuery = state.searchQuery;
+	}
+
+	// 保存当前筛选状态
+	private async saveCurrentFilterState(): Promise<void> {
+		const currentState: FilterState = {
+			mode: this.currentFilterMode,
+			selectedFolder: this.selectedFolderPath || '',
+			selectedCanvas: this.selectedCanvasPath || undefined,
+			selectedTags: [...this.selectedTags],
+			searchQuery: this.searchQuery,
+			sortBy: 'modified', // 可以从UI获取
+			sortOrder: 'desc'   // 可以从UI获取
+		};
+
+		await this.filterStateManager.updateState(currentState);
+	}
+
+	// 更新筛选状态（统一入口）
+	private async updateFilterState(updates: Partial<FilterState>): Promise<void> {
+		await this.filterStateManager.updateState(updates);
+
+		// 同步到本地变量
+		const newState = this.filterStateManager.getState();
+		this.currentFilterMode = newState.mode;
+		this.selectedFolderPath = newState.selectedFolder || null;
+		this.selectedCanvasPath = newState.selectedCanvas || null;
+		this.selectedTags = [...newState.selectedTags];
+		this.searchQuery = newState.searchQuery;
+	}
+
+	// 恢复选择器状态到UI
+	private restoreSelectorState(): void {
+		// 恢复内容选择器状态
+		if (this.currentFilterMode === 'folder') {
+			const folderValue = `folder:${this.selectedFolderPath || ''}`;
+			this.canvasSelector.value = folderValue;
+		} else if (this.currentFilterMode === 'canvas' && this.selectedCanvasPath) {
+			this.canvasSelector.value = this.selectedCanvasPath;
+		}
+
+		// 恢复搜索框状态
+		if (this.searchEl) {
+			this.searchEl.value = this.searchQuery;
+		}
+	}
+
+	// 创建内容选择器（文件夹和画布）
 	private createCanvasSelector() {
 		// 创建选择器标签
 		this.filterEl.createEl('label', {
-			text: '选择画布:',
+			text: '选择内容:',
 			cls: 'canvas-selector-label'
 		});
 
@@ -1533,24 +1739,29 @@ export class CardLibraryView extends ItemView {
 			cls: 'canvas-selector'
 		});
 
-		// 添加默认选项："全局库"
-		this.canvasSelector.createEl('option', {
-			text: '显示全局库所有卡片',
-			value: 'global'
-		});
+		// 更新选择器选项
+		this.updateSelectorOptions();
 
-		// 获取所有 canvas 文件并添加到选项中
-		this.updateCanvasOptions();
+		// 恢复选择器状态
+		this.restoreSelectorState();
 
 		// 监听选择变化
 		this.canvasSelector.addEventListener('change', async () => {
 			const selectedValue = this.canvasSelector.value;
-			if (selectedValue === 'global') {
-				this.currentFilterMode = 'global';
-				this.selectedCanvasPath = null;
+
+			// 更新筛选状态
+			if (selectedValue.startsWith('folder:')) {
+				await this.updateFilterState({
+					mode: 'folder',
+					selectedFolder: selectedValue.replace('folder:', ''),
+					selectedCanvas: undefined
+				});
 			} else {
-				this.currentFilterMode = 'canvas';
-				this.selectedCanvasPath = selectedValue;
+				await this.updateFilterState({
+					mode: 'canvas',
+					selectedCanvas: selectedValue,
+					selectedFolder: ''
+				});
 			}
 
 			// 重新渲染卡片列表
@@ -1576,8 +1787,12 @@ export class CardLibraryView extends ItemView {
 		});
 
 		// 添加搜索事件监听
-		this.searchEl.addEventListener('input', () => {
-			this.searchQuery = this.searchEl.value;
+		this.searchEl.addEventListener('input', async () => {
+			// 更新筛选状态
+			await this.updateFilterState({
+				searchQuery: this.searchEl.value
+			});
+
 			this.debounceRenderCardList();
 		});
 	}
@@ -1597,14 +1812,169 @@ export class CardLibraryView extends ItemView {
 		this.updateTagFilter();
 	}
 
+	// 创建文档优先切换
+	private createDocumentPriorityToggle() {
+		// 创建切换容器
+		const toggleContainer = this.filterEl.createDiv('document-priority-toggle');
+
+		// 创建复选框
+		const checkbox = toggleContainer.createEl('input', {
+			type: 'checkbox',
+			cls: 'document-priority-checkbox'
+		});
+		checkbox.checked = this.plugin.settings.prioritizeDocumentNodes;
+
+		// 创建标签
+		const label = toggleContainer.createEl('label', {
+			text: '优先显示文档节点',
+			cls: 'document-priority-label'
+		});
+		label.setAttribute('for', 'document-priority-checkbox');
+
+		// 添加点击事件
+		checkbox.addEventListener('change', async () => {
+			this.plugin.settings.prioritizeDocumentNodes = checkbox.checked;
+			await this.plugin.saveSettings();
+
+			// 重新渲染卡片列表
+			this.renderCardList();
+		});
+	}
+
+	// 创建筛选状态显示区域
+	private createFilterStatusDisplay() {
+		this.filterStatusEl = this.filterEl.createDiv('filter-status-display');
+		this.updateFilterStatusDisplay();
+	}
+
+	// 更新筛选状态显示
+	private updateFilterStatusDisplay() {
+		if (!this.filterStatusEl) return;
+
+		this.filterStatusEl.empty();
+
+		// 创建状态摘要
+		const statusSummary = this.filterStatusEl.createDiv('filter-status-summary');
+
+		// 显示当前筛选模式
+		const modeDisplay = statusSummary.createSpan('filter-mode');
+		if (this.currentFilterMode === 'folder') {
+			const folderName = this.selectedFolderPath || '根目录';
+			modeDisplay.setText(`📁 ${folderName}`);
+		} else if (this.currentFilterMode === 'canvas' && this.selectedCanvasPath) {
+			const canvasName = this.selectedCanvasPath.split('/').pop()?.replace('.canvas', '') || '画布';
+			modeDisplay.setText(`🎨 ${canvasName}`);
+		}
+
+		// 显示活跃筛选条件
+		const activeFilters = this.getActiveFilters();
+		if (activeFilters.length > 0) {
+			const filtersDisplay = statusSummary.createDiv('active-filters');
+			activeFilters.forEach(filter => {
+				const filterChip = filtersDisplay.createSpan('filter-chip');
+				filterChip.setText(filter);
+			});
+		}
+
+		// 添加清除筛选按钮
+		if (this.hasActiveFilters()) {
+			const clearButton = statusSummary.createEl('button', {
+				text: '清除筛选',
+				cls: 'filter-clear-button'
+			});
+
+			clearButton.addEventListener('click', async () => {
+				await this.clearAllFilters();
+			});
+		}
+	}
+
+	// 获取活跃的筛选条件
+	private getActiveFilters(): string[] {
+		const filters: string[] = [];
+
+		if (this.searchQuery.trim()) {
+			filters.push(`搜索: "${this.searchQuery}"`);
+		}
+
+		if (this.selectedTags.length > 0) {
+			filters.push(`标签: ${this.selectedTags.join(', ')}`);
+		}
+
+		if (this.plugin.settings.prioritizeDocumentNodes) {
+			filters.push('文档优先');
+		}
+
+		return filters;
+	}
+
+	// 检查是否有活跃的筛选条件
+	private hasActiveFilters(): boolean {
+		return this.searchQuery.trim() !== '' ||
+			   this.selectedTags.length > 0 ||
+			   this.plugin.settings.prioritizeDocumentNodes;
+	}
+
+	// 清除所有筛选条件
+	private async clearAllFilters() {
+		// 清除搜索
+		this.searchQuery = '';
+		if (this.searchEl) {
+			this.searchEl.value = '';
+		}
+
+		// 清除标签选择
+		this.selectedTags = [];
+
+		// 更新筛选状态
+		await this.updateFilterState({
+			searchQuery: '',
+			selectedTags: []
+		});
+
+		// 重新渲染
+		this.updateTagFilter();
+		this.updateFilterStatusDisplay();
+		await this.renderCardList();
+	}
+
+	// 可访问性辅助方法
+	private getCardAriaLabel(card: CardData): string {
+		const cardType = card.type === 'native' ? '原生卡片' : '文件卡片';
+		const cardTitle = card.title || '无标题';
+		const cardTags = this.getCardTags(card);
+		const tagsText = cardTags.length > 0 ? `，标签：${cardTags.join('，')}` : '';
+
+		return `${cardType}：${cardTitle}${tagsText}`;
+	}
+
+	private getCardDescription(card: CardData, index: number): string {
+		const parts = [];
+
+		if (card.path) {
+			parts.push(`路径：${card.path}`);
+		}
+
+		if (card.type === 'native' && card.content) {
+			const preview = card.content.length > 100
+				? card.content.substring(0, 100) + '...'
+				: card.content;
+			parts.push(`内容预览：${preview}`);
+		}
+
+		parts.push(`在列表中的位置：第${index + 1}项`);
+
+		return parts.join('，');
+	}
+
 	// 更新标签筛选器
 	private async updateTagFilter() {
 		this.tagFilterEl.empty();
 
 		// 获取当前视图中的所有卡片
 		let cards: CardData[] = [];
-		if (this.currentFilterMode === 'global') {
-			cards = await this.getGlobalCards();
+		if (this.currentFilterMode === 'folder') {
+			cards = await this.getFolderCards();
 		} else if (this.currentFilterMode === 'canvas' && this.selectedCanvasPath) {
 			cards = await this.getCanvasCards(this.selectedCanvasPath);
 		}
@@ -1621,24 +1991,29 @@ export class CardLibraryView extends ItemView {
 			return;
 		}
 
-		// 创建标签按钮
+		// 创建原生样式标签按钮
 		allTags.forEach(tag => {
-			const tagButton = this.tagFilterEl.createDiv({
-				cls: `tag-filter-button ${this.selectedTags.includes(tag) ? 'active' : ''}`,
-				text: tag
-			});
+			const tagButton = this.createNativeTagElement(tag, this.selectedTags.includes(tag));
+			this.tagFilterEl.appendChild(tagButton);
 
 			// 添加点击事件
-			tagButton.addEventListener('click', () => {
+			tagButton.addEventListener('click', async () => {
+				let newSelectedTags: string[];
+
 				if (this.selectedTags.includes(tag)) {
 					// 移除标签
-					this.selectedTags = this.selectedTags.filter(t => t !== tag);
-					tagButton.removeClass('active');
+					newSelectedTags = this.selectedTags.filter(t => t !== tag);
+					tagButton.removeClass('is-active');
 				} else {
 					// 添加标签
-					this.selectedTags.push(tag);
-					tagButton.addClass('active');
+					newSelectedTags = [...this.selectedTags, tag];
+					tagButton.addClass('is-active');
 				}
+
+				// 更新筛选状态
+				await this.updateFilterState({
+					selectedTags: newSelectedTags
+				});
 
 				// 重新渲染卡片列表
 				this.renderCardList();
@@ -1646,7 +2021,7 @@ export class CardLibraryView extends ItemView {
 		});
 	}
 
-	// 从卡片中提取标签
+	// 从卡片中提取标签 - 增强版支持frontmatter
 	private extractTagsFromCards(cards: CardData[]): string[] {
 		// 收集所有标签
 		const tagSet = new Set<string>();
@@ -1657,10 +2032,19 @@ export class CardLibraryView extends ItemView {
 				const file = this.app.vault.getAbstractFileByPath(card.path) as TFile;
 				if (file) {
 					const cache = this.app.metadataCache.getFileCache(file);
-					if (cache && cache.tags) {
-						cache.tags.forEach(tag => {
-							tagSet.add(tag.tag);
-						});
+					if (cache) {
+						// 提取内联标签 (原有功能)
+						if (cache.tags) {
+							cache.tags.forEach(tag => {
+								tagSet.add(tag.tag);
+							});
+						}
+
+						// 提取frontmatter/文档属性标签 (新增功能)
+						if (cache.frontmatter && cache.frontmatter.tags) {
+							const frontmatterTags = cache.frontmatter.tags;
+							this.extractFrontmatterTags(frontmatterTags, tagSet);
+						}
 					}
 				}
 			} else if (card.type === 'native' && card.content) {
@@ -1675,6 +2059,100 @@ export class CardLibraryView extends ItemView {
 
 		// 转换为数组并排序
 		return Array.from(tagSet).sort();
+	}
+
+	// 提取frontmatter标签的辅助方法
+	private extractFrontmatterTags(frontmatterTags: any, tagSet: Set<string>): void {
+		if (Array.isArray(frontmatterTags)) {
+			// 处理数组格式: tags: [tag1, tag2, tag3]
+			frontmatterTags.forEach(tag => {
+				if (typeof tag === 'string' && tag.trim()) {
+					// 确保标签以#开头，保持一致性
+					const normalizedTag = tag.startsWith('#') ? tag : `#${tag}`;
+					tagSet.add(normalizedTag);
+				}
+			});
+		} else if (typeof frontmatterTags === 'string') {
+			// 处理字符串格式: tags: "tag1, tag2, tag3" 或 tags: tag1
+			const tagStrings = frontmatterTags.split(',');
+			tagStrings.forEach(tag => {
+				const trimmedTag = tag.trim();
+				if (trimmedTag) {
+					// 确保标签以#开头，保持一致性
+					const normalizedTag = trimmedTag.startsWith('#') ? trimmedTag : `#${trimmedTag}`;
+					tagSet.add(normalizedTag);
+				}
+			});
+		}
+	}
+
+	// 创建原生Obsidian样式的标签元素
+	private createNativeTagElement(tag: string, isActive: boolean = false): HTMLElement {
+		// 创建标签容器，使用Obsidian原生标签样式
+		const tagEl = document.createElement('a');
+		tagEl.className = `tag ${isActive ? 'is-active' : ''}`;
+		tagEl.setAttribute('href', tag);
+		tagEl.setAttribute('data-tag-name', tag.replace('#', ''));
+		tagEl.setAttribute('target', '_blank');
+		tagEl.setAttribute('rel', 'noopener');
+
+		// 设置标签文本
+		tagEl.textContent = tag;
+
+		// 添加点击样式和交互
+		tagEl.style.cursor = 'pointer';
+		tagEl.style.textDecoration = 'none';
+
+		// 阻止默认链接行为
+		tagEl.addEventListener('click', (e) => {
+			e.preventDefault();
+			e.stopPropagation();
+		});
+
+		return tagEl;
+	}
+
+	// 优先显示文档支持的节点
+	private prioritizeDocumentBackedNodes(cards: CardData[]): CardData[] {
+		// 将卡片分为文件卡和原生卡
+		const fileCards = cards.filter(card => card.type === 'file');
+		const nativeCards = cards.filter(card => card.type === 'native');
+
+		// 文件卡优先，然后是原生卡
+		// 在每个类别内保持原有的排序
+		return [...fileCards, ...nativeCards];
+	}
+
+	// 渲染卡片标签
+	private renderCardTags(container: HTMLElement, card: CardData): void {
+		// 获取卡片的标签
+		const tags = this.getCardTags(card);
+
+		if (tags.length === 0) {
+			return; // 没有标签就不显示标签区域
+		}
+
+		// 创建标签容器
+		const tagsContainer = container.createDiv('card-tags');
+
+		// 限制显示的标签数量，避免界面过于拥挤
+		const maxTagsToShow = 3;
+		const tagsToShow = tags.slice(0, maxTagsToShow);
+		const hasMoreTags = tags.length > maxTagsToShow;
+
+		// 渲染标签
+		tagsToShow.forEach(tag => {
+			const tagElement = this.createNativeTagElement(tag, false);
+			tagElement.classList.add('card-tag'); // 添加卡片标签特定样式
+			tagsContainer.appendChild(tagElement);
+		});
+
+		// 如果有更多标签，显示省略号
+		if (hasMoreTags) {
+			const moreIndicator = tagsContainer.createSpan('card-tags-more');
+			moreIndicator.setText(`+${tags.length - maxTagsToShow}`);
+			moreIndicator.setAttribute('title', `还有 ${tags.length - maxTagsToShow} 个标签: ${tags.slice(maxTagsToShow).join(', ')}`);
+		}
 	}
 
 	// 防抖渲染函数 - 性能优化
@@ -1698,60 +2176,280 @@ export class CardLibraryView extends ItemView {
 		return Date.now() - this.lastCacheUpdate < this.CACHE_DURATION;
 	}
 
-	// 更新画布选项
-	private updateCanvasOptions() {
-		// 清除现有的画布选项（保留全局选项）
-		const options = Array.from(this.canvasSelector.options);
-		for (let i = options.length - 1; i > 0; i--) {
-			this.canvasSelector.removeChild(options[i]);
-		}
+	// 更新选择器选项（文件夹和画布）
+	private updateSelectorOptions() {
+		// 清除现有选项
+		this.canvasSelector.innerHTML = '';
 
+		// 添加文件夹选项
+		this.addFolderOptions();
+
+		// 添加分隔符
+		const separator = this.canvasSelector.createEl('option', {
+			text: '--- 画布文件 ---',
+			attr: { disabled: 'true' }
+		});
+		separator.style.fontStyle = 'italic';
+
+		// 添加画布文件选项
+		this.addCanvasOptions();
+	}
+
+	// 添加文件夹选项
+	private addFolderOptions() {
+		// 添加根目录选项
+		this.canvasSelector.createEl('option', {
+			text: '📁 根目录',
+			value: 'folder:'
+		});
+
+		// 获取所有文件夹
+		const folders = this.getFolderStructure();
+
+		// 添加文件夹选项
+		folders.forEach(folder => {
+			this.canvasSelector.createEl('option', {
+				text: `📁 ${folder.name} (${folder.fileCount})`,
+				value: `folder:${folder.path}`
+			});
+		});
+	}
+
+	// 添加画布选项 - 增强版本，按文件夹组织
+	private addCanvasOptions() {
 		// 获取所有 canvas 文件
 		const canvasFiles = this.app.vault.getFiles().filter(file => file.extension === 'canvas');
 
-		// 添加画布文件选项
-		canvasFiles.forEach(file => {
-			this.canvasSelector.createEl('option', {
-				text: file.basename,
-				value: file.path
-			});
-		});
-
-		// 如果没有画布文件，添加提示
 		if (canvasFiles.length === 0) {
 			this.canvasSelector.createEl('option', {
 				text: '(没有找到画布文件)',
 				value: '',
 				attr: { disabled: 'true' }
 			});
+			return;
 		}
+
+		// 按文件夹组织画布文件
+		const canvasByFolder = this.organizeCanvasByFolder(canvasFiles);
+
+		// 添加根目录的画布文件
+		if (canvasByFolder.has('')) {
+			const rootCanvases = canvasByFolder.get('')!;
+			this.addCanvasGroup('根目录', rootCanvases);
+		}
+
+		// 添加其他文件夹的画布文件
+		const sortedFolders = Array.from(canvasByFolder.keys())
+			.filter(folder => folder !== '')
+			.sort();
+
+		sortedFolders.forEach(folderPath => {
+			const canvases = canvasByFolder.get(folderPath)!;
+			const folderName = folderPath.split('/').pop() || folderPath;
+			this.addCanvasGroup(folderName, canvases);
+		});
+	}
+
+	// 按文件夹组织画布文件
+	private organizeCanvasByFolder(canvasFiles: TFile[]): Map<string, TFile[]> {
+		const canvasByFolder = new Map<string, TFile[]>();
+
+		canvasFiles.forEach(file => {
+			const folderPath = file.parent?.path || '';
+
+			if (!canvasByFolder.has(folderPath)) {
+				canvasByFolder.set(folderPath, []);
+			}
+			canvasByFolder.get(folderPath)!.push(file);
+		});
+
+		// 对每个文件夹内的画布按修改时间排序（最新的在前）
+		canvasByFolder.forEach(canvases => {
+			canvases.sort((a, b) => b.stat.mtime - a.stat.mtime);
+		});
+
+		return canvasByFolder;
+	}
+
+	// 添加画布组（文件夹分组）
+	private addCanvasGroup(groupName: string, canvases: TFile[]) {
+		// 添加分组标题（如果不是第一组）
+		if (this.canvasSelector.options.length > 1) { // 已有文件夹选项
+			const separator = this.canvasSelector.createEl('option', {
+				text: `--- ${groupName} (${canvases.length}) ---`,
+				attr: { disabled: 'true' }
+			});
+			separator.style.fontStyle = 'italic';
+			separator.style.color = 'var(--text-muted)';
+		}
+
+		// 添加该组的画布文件
+		canvases.forEach(async (file) => {
+			const modifiedDate = new Date(file.stat.mtime).toLocaleDateString();
+			const nodeCount = await this.getCanvasNodeCount(file);
+
+			let displayText = `🎨 ${file.basename}`;
+			if (nodeCount > 0) {
+				displayText += ` (${nodeCount}节点, ${modifiedDate})`;
+			} else {
+				displayText += ` (${modifiedDate})`;
+			}
+
+			const option = this.canvasSelector.createEl('option', {
+				text: displayText,
+				value: file.path
+			});
+
+			// 添加详细的工具提示信息
+			const tooltipInfo = [
+				`路径: ${file.path}`,
+				`节点数量: ${nodeCount}`,
+				`文件大小: ${this.formatFileSize(file.stat.size)}`,
+				`创建时间: ${new Date(file.stat.ctime).toLocaleString()}`,
+				`修改时间: ${new Date(file.stat.mtime).toLocaleString()}`
+			];
+			option.title = tooltipInfo.join('\n');
+		});
+	}
+
+	// 获取画布节点数量
+	private async getCanvasNodeCount(canvasFile: TFile): Promise<number> {
+		try {
+			const content = await this.app.vault.read(canvasFile);
+			const canvasData = JSON.parse(content);
+			return canvasData.nodes ? canvasData.nodes.length : 0;
+		} catch (error) {
+			console.warn(`Failed to read canvas file ${canvasFile.path}:`, error);
+			return 0;
+		}
+	}
+
+	// 格式化文件大小
+	private formatFileSize(bytes: number): string {
+		if (bytes === 0) return '0 B';
+		const k = 1024;
+		const sizes = ['B', 'KB', 'MB', 'GB'];
+		const i = Math.floor(Math.log(bytes) / Math.log(k));
+		return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+	}
+
+	// 获取文件夹结构
+	private getFolderStructure(): FolderNode[] {
+		const folders: FolderNode[] = [];
+		const allFiles = this.app.vault.getMarkdownFiles();
+		const folderMap = new Map<string, number>();
+
+		// 统计每个文件夹的文件数量
+		allFiles.forEach(file => {
+			const pathParts = file.path.split('/');
+			if (pathParts.length > 1) {
+				// 文件在子文件夹中
+				const folderPath = pathParts.slice(0, -1).join('/');
+				folderMap.set(folderPath, (folderMap.get(folderPath) || 0) + 1);
+			}
+		});
+
+		// 创建文件夹节点
+		folderMap.forEach((fileCount, folderPath) => {
+			const folderName = folderPath.split('/').pop() || folderPath;
+			folders.push({
+				path: folderPath,
+				name: folderName,
+				children: [], // 暂时不实现嵌套结构
+				fileCount: fileCount
+			});
+		});
+
+		// 按名称排序
+		return folders.sort((a, b) => a.name.localeCompare(b.name));
+	}
+
+	// 高级筛选系统 - 组合所有筛选条件
+	private async getFilteredCards(): Promise<CardData[]> {
+		// 1. 获取基础卡片集合
+		let baseCards: CardData[] = [];
+
+		if (this.currentFilterMode === 'folder') {
+			baseCards = await this.getFolderCards();
+		} else if (this.currentFilterMode === 'canvas' && this.selectedCanvasPath) {
+			baseCards = await this.getCanvasCards(this.selectedCanvasPath);
+		}
+
+		// 2. 应用组合筛选
+		return this.applyAdvancedFilters(baseCards);
+	}
+
+	// 应用高级组合筛选
+	private applyAdvancedFilters(cards: CardData[]): CardData[] {
+		let filteredCards = [...cards];
+
+		// 应用搜索筛选（优先级最高，因为通常最具选择性）
+		if (this.searchQuery.trim()) {
+			filteredCards = this.filterCardsBySearch(filteredCards, this.searchQuery);
+		}
+
+		// 应用标签筛选（支持多标签AND/OR逻辑）
+		if (this.selectedTags.length > 0) {
+			filteredCards = this.filterCardsByTagsAdvanced(filteredCards, this.selectedTags);
+		}
+
+		// 应用内容类型筛选（如果有其他筛选条件）
+		filteredCards = this.filterByContentType(filteredCards);
+
+		return filteredCards;
+	}
+
+	// 高级标签筛选（支持AND/OR逻辑）
+	private filterCardsByTagsAdvanced(cards: CardData[], tags: string[]): CardData[] {
+		return cards.filter(card => {
+			const cardTags = this.getCardTags(card);
+
+			// 默认使用OR逻辑：卡片包含任一选中标签即显示
+			// 可以扩展为支持AND逻辑的高级模式
+			return tags.some(selectedTag =>
+				cardTags.some(cardTag =>
+					cardTag.toLowerCase().includes(selectedTag.toLowerCase().replace('#', ''))
+				)
+			);
+		});
+	}
+
+	// 按内容类型筛选
+	private filterByContentType(cards: CardData[]): CardData[] {
+		// 可以根据需要添加更多内容类型筛选
+		// 例如：只显示有标签的卡片、只显示最近修改的卡片等
+		return cards;
+	}
+
+	// 筛选结果统计和分析
+	private getFilterStats(originalCards: CardData[], filteredCards: CardData[]): FilterStats {
+		const stats: FilterStats = {
+			total: originalCards.length,
+			filtered: filteredCards.length,
+			fileCards: filteredCards.filter(c => c.type === 'file').length,
+			nativeCards: filteredCards.filter(c => c.type === 'native').length,
+			taggedCards: filteredCards.filter(c => this.getCardTags(c).length > 0).length
+		};
+
+		return stats;
 	}
 
 	private async renderCardList() {
 		this.cardListEl.empty();
 
-		let cardsToShow: CardData[] = [];
+		// 使用高级筛选系统
+		const cardsToShow = await this.getFilteredCards();
 
-		if (this.currentFilterMode === 'global') {
-			// 全局模式：显示所有文件卡
-			cardsToShow = await this.getGlobalCards();
-		} else if (this.currentFilterMode === 'canvas' && this.selectedCanvasPath) {
-			// 画布模式：显示特定画布的卡片
-			cardsToShow = await this.getCanvasCards(this.selectedCanvasPath);
-		}
+		// 应用文档节点优先筛选
+		const prioritizedCards = this.plugin.settings.prioritizeDocumentNodes
+			? this.prioritizeDocumentBackedNodes(cardsToShow)
+			: cardsToShow;
 
-		// 应用搜索筛选
-		if (this.searchQuery.trim()) {
-			cardsToShow = this.filterCardsBySearch(cardsToShow, this.searchQuery);
-		}
-
-		// 应用标签筛选
-		if (this.selectedTags.length > 0) {
-			cardsToShow = this.filterCardsByTags(cardsToShow, this.selectedTags);
-		}
+		// 更新筛选状态显示
+		this.updateFilterStatusDisplay();
 
 		// 如果没有卡片，显示空状态
-		if (cardsToShow.length === 0) {
+		if (prioritizedCards.length === 0) {
 			const emptyState = this.cardListEl.createDiv('card-library-empty');
 			emptyState.createDiv('card-library-empty-icon').setText('📝');
 			let emptyText = '没有找到匹配的卡片';
@@ -1769,14 +2467,14 @@ export class CardLibraryView extends ItemView {
 		}
 
 		// 根据设置排序卡片
-		const sortedCards = this.sortCards(cardsToShow);
+		const sortedCards = this.sortCards(prioritizedCards);
 
 		// 限制显示数量
 		const maxCards = this.plugin.settings.maxCardsPerView;
 		const cardsToDisplay = sortedCards.slice(0, maxCards);
 
 		// 创建卡片项
-		cardsToDisplay.forEach(card => {
+		cardsToDisplay.forEach((card, index) => {
 			const cardItem = this.cardListEl.createDiv({
 				cls: `card-library-item ${card.type === 'native' ? 'native-card-item' : ''}`,
 				attr: {
@@ -1784,14 +2482,36 @@ export class CardLibraryView extends ItemView {
 					'data-type': card.type,
 					'data-id': card.id,
 					'draggable': 'true',
-					'title': card.path || card.content || '' // 悬停提示
+					'title': card.path || card.content || '', // 悬停提示
+					// 可访问性属性
+					'role': 'button',
+					'tabindex': '0',
+					'aria-label': this.getCardAriaLabel(card),
+					'aria-describedby': `card-${index}-description`
 				}
 			});
 
-			cardItem.setText(card.title);
+			// 创建卡片内容容器
+			const cardContent = cardItem.createDiv('card-content');
+
+			// 创建标题元素
+			const cardTitle = cardContent.createDiv('card-title');
+			cardTitle.setText(card.title);
+
+			// 添加标签显示
+			this.renderCardTags(cardContent, card);
+
+			// 创建隐藏的描述元素（用于屏幕阅读器）
+			const cardDescription = cardItem.createDiv({
+				cls: 'sr-only',
+				attr: {
+					'id': `card-${index}-description`
+				}
+			});
+			cardDescription.setText(this.getCardDescription(card, index));
 
 			// 添加点击事件
-			cardItem.addEventListener('click', (event) => {
+			const handleCardActivation = (event: Event) => {
 				// 如果是拖拽开始，不触发点击
 				if (cardItem.classList.contains('dragging')) return;
 
@@ -1803,6 +2523,15 @@ export class CardLibraryView extends ItemView {
 					this.app.workspace.openLinkText(card.canvasId, '', false);
 				}
 				event.preventDefault();
+			};
+
+			cardItem.addEventListener('click', handleCardActivation);
+
+			// 添加键盘导航支持
+			cardItem.addEventListener('keydown', (event) => {
+				if (event.key === 'Enter' || event.key === ' ') {
+					handleCardActivation(event);
+				}
 			});
 		});
 
@@ -1839,7 +2568,7 @@ export class CardLibraryView extends ItemView {
 		});
 	}
 
-	// 获取卡片的标签
+	// 获取卡片的标签 - 增强版支持frontmatter
 	private getCardTags(card: CardData): string[] {
 		const tags: string[] = [];
 
@@ -1848,10 +2577,21 @@ export class CardLibraryView extends ItemView {
 			const file = this.app.vault.getAbstractFileByPath(card.path) as TFile;
 			if (file) {
 				const cache = this.app.metadataCache.getFileCache(file);
-				if (cache && cache.tags) {
-					cache.tags.forEach(tag => {
-						tags.push(tag.tag);
-					});
+				if (cache) {
+					// 获取内联标签 (原有功能)
+					if (cache.tags) {
+						cache.tags.forEach(tag => {
+							tags.push(tag.tag);
+						});
+					}
+
+					// 获取frontmatter/文档属性标签 (新增功能)
+					if (cache.frontmatter && cache.frontmatter.tags) {
+						const frontmatterTags = cache.frontmatter.tags;
+						const tagSet = new Set<string>();
+						this.extractFrontmatterTags(frontmatterTags, tagSet);
+						tags.push(...Array.from(tagSet));
+					}
 				}
 			}
 		} else if (card.type === 'native' && card.content) {
@@ -1866,24 +2606,100 @@ export class CardLibraryView extends ItemView {
 		return tags;
 	}
 
-	// 获取全局卡片（所有文件卡）- 带缓存优化
+	// 获取文件夹卡片（基于选定文件夹的文件卡）
+	private async getFolderCards(): Promise<CardData[]> {
+		let notesToProcess: TFile[];
+
+		if (this.selectedFolderPath === null || this.selectedFolderPath === '') {
+			// 如果没有选择文件夹，显示根目录的文件
+			notesToProcess = this.app.vault.getMarkdownFiles().filter(file =>
+				!file.path.includes('/')
+			);
+		} else {
+			// 获取选定文件夹中的文件
+			notesToProcess = this.app.vault.getMarkdownFiles().filter(file =>
+				file.path.startsWith(this.selectedFolderPath + '/')
+			);
+		}
+
+		// 性能优化：限制处理的文件数量
+		const maxFiles = this.plugin.settings.maxCardsPerView;
+		const limitedNotes = notesToProcess.slice(0, maxFiles * 2); // 预留一些余量用于筛选
+
+		return limitedNotes.map(note => {
+			// 提取文件标签
+			const cache = this.app.metadataCache.getFileCache(note);
+			const tags: string[] = [];
+
+			if (cache) {
+				// 提取内联标签
+				if (cache.tags) {
+					cache.tags.forEach(tag => {
+						tags.push(tag.tag);
+					});
+				}
+
+				// 提取frontmatter标签
+				if (cache.frontmatter && cache.frontmatter.tags) {
+					const tagSet = new Set<string>();
+					this.extractFrontmatterTags(cache.frontmatter.tags, tagSet);
+					tags.push(...Array.from(tagSet));
+				}
+			}
+
+			return {
+				id: note.path,
+				type: 'file' as const,
+				title: this.plugin.settings.showFileExtensions
+					? note.basename
+					: note.basename.replace('.md', ''),
+				path: note.path,
+				tags: tags,
+				lastModified: note.stat.mtime
+			};
+		});
+	}
+
+	// 获取全局卡片（所有文件卡）- 保留用于兼容性
 	private async getGlobalCards(): Promise<CardData[]> {
 		const allNotes = this.app.vault.getMarkdownFiles();
 
 		// 性能优化：限制处理的文件数量
 		const maxFiles = this.plugin.settings.maxCardsPerView;
-		const notesToProcess = allNotes.slice(0, maxFiles * 2); // 预留一些余量用于筛选
+		const notesToProcess = allNotes.slice(0, maxFiles * 2);
 
-		return notesToProcess.map(note => ({
-			id: note.path,
-			type: 'file' as const,
-			title: this.plugin.settings.showFileExtensions
-				? note.basename
-				: note.basename.replace('.md', ''),
-			path: note.path,
-			tags: [], // TODO: 从文件中提取标签
-			lastModified: note.stat.mtime
-		}));
+		return notesToProcess.map(note => {
+			// 提取文件标签
+			const cache = this.app.metadataCache.getFileCache(note);
+			const tags: string[] = [];
+
+			if (cache) {
+				// 提取内联标签
+				if (cache.tags) {
+					cache.tags.forEach(tag => {
+						tags.push(tag.tag);
+					});
+				}
+
+				// 提取frontmatter标签
+				if (cache.frontmatter && cache.frontmatter.tags) {
+					const tagSet = new Set<string>();
+					this.extractFrontmatterTags(cache.frontmatter.tags, tagSet);
+					tags.push(...Array.from(tagSet));
+				}
+			}
+
+			return {
+				id: note.path,
+				type: 'file' as const,
+				title: this.plugin.settings.showFileExtensions
+					? note.basename
+					: note.basename.replace('.md', ''),
+				path: note.path,
+				tags: tags,
+				lastModified: note.stat.mtime
+			};
+		});
 	}
 
 	// 获取画布卡片（文件卡 + 原生卡）- 增强错误处理
@@ -1940,6 +2756,29 @@ export class CardLibraryView extends ItemView {
 							return;
 						}
 
+						// 提取文件标签
+						const file = this.app.vault.getAbstractFileByPath(node.file) as TFile;
+						const tags: string[] = [];
+
+						if (file) {
+							const cache = this.app.metadataCache.getFileCache(file);
+							if (cache) {
+								// 提取内联标签
+								if (cache.tags) {
+									cache.tags.forEach(tag => {
+										tags.push(tag.tag);
+									});
+								}
+
+								// 提取frontmatter标签
+								if (cache.frontmatter && cache.frontmatter.tags) {
+									const tagSet = new Set<string>();
+									this.extractFrontmatterTags(cache.frontmatter.tags, tagSet);
+									tags.push(...Array.from(tagSet));
+								}
+							}
+						}
+
 						const fileName = node.file.split('/').pop()?.replace('.md', '') || node.file;
 						cards.push({
 							id: `${canvasPath}#${node.id}`,
@@ -1948,7 +2787,7 @@ export class CardLibraryView extends ItemView {
 								? fileName + '.md'
 								: fileName,
 							path: node.file,
-							tags: [], // TODO: 从文件中提取标签
+							tags: tags,
 							lastModified: canvasFile.stat.mtime
 						});
 					} else if (node.type === 'text' && node.text) {
@@ -1956,6 +2795,14 @@ export class CardLibraryView extends ItemView {
 						if (typeof node.text !== 'string' || node.text.trim() === '') {
 							console.warn(`Invalid text content in node ${node.id}`);
 							return;
+						}
+
+						// 从文本内容中提取标签
+						const tags: string[] = [];
+						const tagRegex = /#[a-zA-Z0-9_-]+/g;
+						const matches = node.text.match(tagRegex);
+						if (matches) {
+							tags.push(...matches);
 						}
 
 						const title = node.text.length > 50
@@ -1967,7 +2814,7 @@ export class CardLibraryView extends ItemView {
 							title: title.trim(),
 							content: node.text,
 							canvasId: canvasPath,
-							tags: [], // TODO: 从内容中提取标签
+							tags: tags,
 							lastModified: canvasFile.stat.mtime
 						});
 					}
