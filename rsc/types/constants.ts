@@ -22,6 +22,7 @@ export const CARD_LIBRARY_VIEW_TYPE = "card-library-view";
 
 /**
  * Default plugin settings configuration
+ * Extracted from main.ts - exact values preserved
  */
 export const DEFAULT_SETTINGS: PluginSettings = {
     cardLibraryPosition: 'right',

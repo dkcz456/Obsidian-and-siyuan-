@@ -8,24 +8,25 @@
 /**
  * Creates a debounced version of the provided function that delays invoking
  * until after wait milliseconds have elapsed since the last time it was invoked.
- * 
+ *
+ * This is the exact debounce function extracted from main.ts
+ *
  * @param func - The function to debounce
  * @param wait - The number of milliseconds to delay
  * @returns A debounced version of the function
- * 
+ *
  * @example
  * ```typescript
  * const debouncedSearch = debounce((query: string) => {
  *     performSearch(query);
  * }, 300);
- * 
+ *
  * // Will only execute after 300ms of no calls
  * debouncedSearch('search term');
  * ```
  */
 export function debounce<T extends (...args: any[]) => any>(func: T, wait: number): T {
     let timeout: NodeJS.Timeout;
-    
     return ((...args: any[]) => {
         clearTimeout(timeout);
         timeout = setTimeout(() => func.apply(this, args), wait);

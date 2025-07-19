@@ -9,21 +9,41 @@ import { Coordinates, Bounds } from '../types/interfaces';
 
 /**
  * Converts screen coordinates to canvas coordinates
- * 
- * @param screenX - Screen X coordinate
- * @param screenY - Screen Y coordinate
+ * Extracted from main.ts drag-drop functionality
+ *
+ * @param screenX - Screen X coordinate (event.clientX)
+ * @param screenY - Screen Y coordinate (event.clientY)
  * @param canvasElement - The canvas DOM element
  * @returns Canvas coordinates
  */
 export function screenToCanvasCoordinates(
-    screenX: number, 
-    screenY: number, 
+    screenX: number,
+    screenY: number,
     canvasElement: HTMLElement
 ): Coordinates {
     const rect = canvasElement.getBoundingClientRect();
     return {
         x: screenX - rect.left,
         y: screenY - rect.top
+    };
+}
+
+/**
+ * Converts drag event to canvas coordinates
+ * This is the specific implementation used in main.ts
+ *
+ * @param event - Drag event
+ * @param canvasWrapperEl - Canvas wrapper element
+ * @returns Canvas coordinates
+ */
+export function dragEventToCanvasCoordinates(
+    event: DragEvent,
+    canvasWrapperEl: HTMLElement
+): Coordinates {
+    const rect = canvasWrapperEl.getBoundingClientRect();
+    return {
+        x: event.clientX - rect.left,
+        y: event.clientY - rect.top
     };
 }
 
